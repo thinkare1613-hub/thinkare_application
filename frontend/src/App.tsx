@@ -595,14 +595,107 @@ function App() {
               </section>
             )}
 
-            {(screen === "clinics" || screen === "availability" || screen === "billing" || screen === "settings") && (
+            {screen === "clinics" && (
               <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
-                <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-8 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                  <h3 className="font-serif text-3xl text-[#17362c]">{activeMeta.title}</h3>
-                  <p className="mt-3 text-[#587068]">{activeMeta.subtitle}</p>
-                  <div className="mt-6 rounded-2xl border border-dashed border-[#bfd1c8] bg-[#f5faf7] p-8 text-center text-[#587068]">
-                    This section is ready for the next module build-out.
+                <div className="grid gap-5 lg:grid-cols-3">
+                  {[
+                    { name: "Downtown Care Center", city: "New York", capacity: "24 rooms", status: "Open" },
+                    { name: "Lakeview Clinic", city: "Chicago", capacity: "18 rooms", status: "Busy" },
+                    { name: "Greenwood Health", city: "Austin", capacity: "14 rooms", status: "Open" },
+                  ].map((clinic) => (
+                    <div key={clinic.name} className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xl font-semibold text-[#17362c]">{clinic.name}</h3>
+                        <span className="rounded-full bg-[#eaf9f7] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[.12em] text-[#19b3a2]">{clinic.status}</span>
+                      </div>
+                      <p className="mt-3 text-sm text-[#587068]">{clinic.city}</p>
+                      <div className="mt-5 rounded-2xl bg-[#f5faf7] p-4">
+                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Capacity</p>
+                        <p className="mt-2 text-2xl font-bold text-[#17362c]">{clinic.capacity}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {screen === "availability" && (
+              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
+                <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                  <div className="flex items-center justify-between pb-4">
+                    <div>
+                      <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Schedule</p>
+                      <h3 className="mt-2 font-serif text-3xl text-[#17362c]">Doctor availability</h3>
+                    </div>
+                    <button className="rounded-xl bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white">Add slot</button>
                   </div>
+
+                  <div className="mt-4 overflow-hidden rounded-2xl border border-[#dfe9e1]">
+                    <table className="w-full text-left text-sm text-[#17362c]">
+                      <thead className="bg-[#f5faf7] text-[#587068]">
+                        <tr>
+                          <th className="px-4 py-3 font-semibold">Doctor</th>
+                          <th className="px-4 py-3 font-semibold">Day</th>
+                          <th className="px-4 py-3 font-semibold">Slots</th>
+                          <th className="px-4 py-3 font-semibold">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          ["Dr. Ananya Rao", "Mon", "8 slots", "Open"],
+                          ["Dr. Kabir Menon", "Tue", "5 slots", "Limited"],
+                          ["Dr. Aisha Patel", "Wed", "9 slots", "Open"],
+                        ].map(([doctor, day, slots, status]) => (
+                          <tr key={doctor} className="border-t border-[#dfe9e1]">
+                            <td className="px-4 py-3 font-medium">{doctor}</td>
+                            <td className="px-4 py-3">{day}</td>
+                            <td className="px-4 py-3">{slots}</td>
+                            <td className="px-4 py-3">
+                              <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[.12em] ${status === "Open" ? "bg-[#eaf9f7] text-[#19b3a2]" : "bg-[#fff7e9] text-[#8a5e00]"}`}>
+                                {status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {screen === "billing" && (
+              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
+                <div className="grid gap-5 md:grid-cols-3">
+                  {[
+                    { label: "Monthly revenue", value: "$42,560", tone: "bg-[#19b3a2] text-white" },
+                    { label: "Outstanding", value: "$8,240", tone: "bg-[#fef3d2] text-[#8a5e00]" },
+                    { label: "Collected", value: "$34,320", tone: "bg-[#eaf5ef] text-[#0d523e]" },
+                  ].map((item) => (
+                    <div key={item.label} className={`rounded-3xl p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)] ${item.tone}`}>
+                      <p className="text-sm font-medium opacity-80">{item.label}</p>
+                      <p className="mt-3 text-3xl font-bold">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {screen === "settings" && (
+              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
+                <div className="grid gap-5 lg:grid-cols-2">
+                  {[
+                    { title: "User roles", text: "Admin, doctor, and reception access configured." },
+                    { title: "Notifications", text: "Appointment reminders and billing alerts enabled." },
+                    { title: "Security", text: "Two-factor auth and session policy active." },
+                    { title: "Integrations", text: "EMR, billing, and notification APIs connected." },
+                  ].map((setting) => (
+                    <div key={setting.title} className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                      <h3 className="text-xl font-semibold text-[#17362c]">{setting.title}</h3>
+                      <p className="mt-3 text-sm text-[#587068]">{setting.text}</p>
+                      <button className="mt-5 rounded-xl border border-[#c7d5ca] bg-white px-3 py-2 text-sm font-semibold text-[#17362c]">Manage</button>
+                    </div>
+                  ))}
                 </div>
               </section>
             )}
