@@ -8,7 +8,7 @@ export function Header({ title, subtitle }: HeaderProps) {
     <header className="border-b border-[#d8e2d9] bg-[#fcfdf9] px-6 py-4">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[.16em] text-[#146c52]">Thinkare</p>
+          <p className="text-xs font-bold uppercase tracking-[.16em] text-[#19b3a2]">Thinkare</p>
           <h1 className="mt-1 font-serif text-3xl text-[#17362c]">{title}</h1>
           <p className="mt-1 text-sm text-[#587068]">{subtitle}</p>
         </div>
@@ -17,11 +17,11 @@ export function Header({ title, subtitle }: HeaderProps) {
           <div className="hidden rounded-xl border border-[#d8e2d9] bg-white px-3 py-2 text-sm text-[#587068] sm:block">
             Search patients or doctors
           </div>
-          <button className="grid size-10 place-items-center rounded-full border border-[#d8e2d9] bg-white text-lg text-[#146c52]">
+          <button className="grid size-10 place-items-center rounded-full border border-[#d8e2d9] bg-white text-lg text-[#19b3a2]">
             🔔
           </button>
           <div className="flex items-center gap-3 rounded-full border border-[#d8e2d9] bg-white px-2 py-1.5">
-            <span className="grid size-8 place-items-center rounded-full bg-[#146c52] text-[10px] font-bold text-white">AD</span>
+            <span className="grid size-8 place-items-center rounded-full bg-[#19b3a2] text-[10px] font-bold text-white">AD</span>
             <div className="text-left leading-tight">
               <p className="text-sm font-semibold text-[#17362c]">Admin</p>
               <p className="text-[10px] uppercase tracking-[.12em] text-[#587068]">Clinic Ops</p>
