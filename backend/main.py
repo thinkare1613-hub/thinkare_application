@@ -20,9 +20,19 @@ password_hash = PasswordHash.recommended()
 bearer_scheme = HTTPBearer()
 
 app = FastAPI(title="Thinkare Booking API", version="0.1.0")
+allowed_origins = {
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+}
+configured_origin = os.getenv("FRONTEND_ORIGIN")
+if configured_origin:
+    allowed_origins.add(configured_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")],
+    allow_origins=list(allowed_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
