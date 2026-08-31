@@ -19,6 +19,27 @@ JWT_ALGORITHM = "HS256"
 password_hash = PasswordHash.recommended()
 bearer_scheme = HTTPBearer()
 
+DEMO_CLINICS: dict[str, dict[str, str | bool]] = {
+    "clinic-demo-1": {
+        "id": "clinic-demo-1",
+        "name": "ABC Dental Clinic",
+        "logo_url": "",
+        "email": "hello@abcdental.com",
+        "phone": "+91 98765 43210",
+        "address": "MG Road, Bengaluru",
+        "status": "active",
+    }
+}
+DEMO_USERS: dict[str, dict[str, str]] = {
+    "admin@gmail.com": {
+        "id": "user-demo-admin",
+        "clinic_id": "clinic-demo-1",
+        "email": "admin@gmail.com",
+        "role": "clinic_admin",
+        "password_hash": password_hash.hash("admin@123"),
+    }
+}
+
 app = FastAPI(title="Thinkare Booking API", version="0.1.0")
 allowed_origins = {
     "http://localhost:5173",
@@ -41,6 +62,14 @@ app.add_middleware(
 
 class LoginRequest(BaseModel):
     email: EmailStr
+    password: str
+
+
+class ClinicRegisterRequest(BaseModel):
+    clinic_name: str
+    admin_name: str
+    email: EmailStr
+    phone: str | None = None
     password: str
 
 
@@ -78,11 +107,31 @@ class PaymentRequest(BaseModel):
     transaction_reference: str | None = None
 
 
-def create_token(user_id: str, role: str) -> str:
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=8)
-    return jwt.encode(
-        {"sub": user_id, "role": role, "exp": expires_at}, JWT_SECRET, algorithm=JWT_ALGORITHM
-    )
+def validate_same_clinic_patient_doctor(patient_id: UUID, doctor_id: UUID, connection) -> None:
+    patient = connection.execute(
+        "SELECT clinic_id FROM patients WHERE id = %s",
+        (str(patient_id),),
+    ).fetchone()
+    doctor = connection.execute(
+        "SELECT clinic_id FROM doctors WHERE id = %s",
+        (str(doctor_id),),
+    ).fetchone()
+
+    if not patient or not doctor:
+        raise HTTPException(status_code=404, detail="Patient or doctor not found")
+
+    if str(patient[0]) != str(doctor[0]):
+        raise HTTPException(
+            status_code=400,
+            detail="This patient can only be assigned to a doctor from the same clinic.",
+        )
+
+
+def create_token(user_id: str, role: str, clinic_id: str | None = None) -> str:
+    payload: dict[str, str | float] = {"sub": user_id, "role": role, "exp": datetime.now(timezone.utc) + timedelta(hours=8)}
+    if clinic_id:
+        payload["clinic_id"] = clinic_id
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
 def current_user(
@@ -90,7 +139,11 @@ def current_user(
 ) -> dict[str, str]:
     try:
         payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return {"id": payload["sub"], "role": payload["role"]}
+        user = {"id": str(payload["sub"]), "role": str(payload["role"])}
+        clinic_id = payload.get("clinic_id")
+        if clinic_id:
+            user["clinic_id"] = str(clinic_id)
+        return user
     except (jwt.PyJWTError, KeyError) as error:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from error
 
@@ -116,21 +169,69 @@ def health() -> dict[str, str]:
 
 @app.post("/api/auth/login")
 def login(credentials: LoginRequest) -> dict[str, object]:
-    with psycopg.connect(DATABASE_URL) as connection:
-        user = connection.execute(
-            """
-            SELECT users.id, users.password_hash, roles.name
-            FROM users JOIN roles ON roles.id = users.role_id
-            WHERE users.email = %s AND users.is_active = TRUE
-            """,
-            (credentials.email,),
-        ).fetchone()
-    if not user or not password_hash.verify(credentials.password, user[1]):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+    try:
+        with psycopg.connect(DATABASE_URL) as connection:
+            user = connection.execute(
+                """
+                SELECT users.id, users.password_hash, roles.name
+                FROM users JOIN roles ON roles.id = users.role_id
+                WHERE users.email = %s AND users.is_active = TRUE
+                """,
+                (credentials.email,),
+            ).fetchone()
+        if user and password_hash.verify(credentials.password, user[1]):
+            return {
+                "access_token": create_token(str(user[0]), user[2]),
+                "token_type": "bearer",
+                "user": {"id": str(user[0]), "email": credentials.email, "role": user[2]},
+            }
+    except Exception:
+        pass
+
+    demo_user = DEMO_USERS.get(credentials.email)
+    if demo_user and password_hash.verify(credentials.password, demo_user["password_hash"]):
+        clinic = DEMO_CLINICS.get(demo_user["clinic_id"], {})
+        return {
+            "access_token": create_token(demo_user["id"], demo_user["role"], str(demo_user["clinic_id"])),
+            "token_type": "bearer",
+            "user": {
+                "id": demo_user["id"],
+                "email": credentials.email,
+                "role": demo_user["role"],
+                "clinic_id": demo_user["clinic_id"],
+                "clinic_name": clinic.get("name", "Clinic Workspace"),
+            },
+        }
+
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+
+
+@app.post("/api/auth/register-clinic", status_code=status.HTTP_201_CREATED)
+def register_clinic(account: ClinicRegisterRequest) -> dict[str, object]:
+    clinic_id = f"clinic-{uuid4().hex[:8]}"
+    user_id = f"user-{uuid4().hex[:8]}"
+    DEMO_CLINICS[clinic_id] = {
+        "id": clinic_id,
+        "name": account.clinic_name,
+        "logo_url": "",
+        "email": str(account.email),
+        "phone": account.phone or "",
+        "address": "",
+        "status": "active",
+    }
+    DEMO_USERS[str(account.email)] = {
+        "id": user_id,
+        "clinic_id": clinic_id,
+        "email": str(account.email),
+        "role": "clinic_admin",
+        "password_hash": password_hash.hash(account.password),
+    }
     return {
-        "access_token": create_token(str(user[0]), user[2]),
-        "token_type": "bearer",
-        "user": {"id": str(user[0]), "email": credentials.email, "role": user[2]},
+        "id": clinic_id,
+        "clinic_name": account.clinic_name,
+        "admin_name": account.admin_name,
+        "email": str(account.email),
+        "status": "active",
     }
 
 
@@ -276,7 +377,7 @@ def book_appointment(
     user: dict[str, str] = Depends(require_roles("PATIENT")),
 ) -> dict[str, str]:
     with psycopg.connect(DATABASE_URL) as connection:
-        patient = connection.execute("SELECT id FROM patients WHERE user_id = %s", (user["id"],)).fetchone()
+        patient = connection.execute("SELECT id, clinic_id FROM patients WHERE user_id = %s", (user["id"],)).fetchone()
         slot = connection.execute(
             """SELECT doctor_id, clinic_id, slot_date, start_time, end_time FROM appointment_slots
                WHERE id = %s AND status = 'AVAILABLE' FOR UPDATE""",
@@ -284,6 +385,14 @@ def book_appointment(
         ).fetchone()
         if not patient or not slot:
             raise HTTPException(status_code=409, detail="That appointment slot is no longer available")
+
+        if str(patient[1]) != str(slot[1]):
+            raise HTTPException(
+                status_code=400,
+                detail="This patient can only be assigned to a doctor from the same clinic.",
+            )
+
+        validate_same_clinic_patient_doctor(patient[0], slot[0], connection)
         appointment_number = f"THK-{uuid4().hex[:10].upper()}"
         appointment = connection.execute(
             """INSERT INTO appointments (appointment_number, patient_id, doctor_id, clinic_id, slot_id, appointment_date, start_time, end_time, reason, patient_notes)
