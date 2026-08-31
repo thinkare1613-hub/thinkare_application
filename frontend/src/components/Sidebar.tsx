@@ -4,7 +4,7 @@ export type NavItem = {
   icon: string;
 };
 
-const navItems: NavItem[] = [
+const clinicNavItems: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "▣" },
   { key: "appointments", label: "Appointments", icon: "◫" },
   { key: "patients", label: "Patients", icon: "◌" },
@@ -18,9 +18,13 @@ const navItems: NavItem[] = [
 type SidebarProps = {
   activePage: string;
   onSelectPage: (page: string) => void;
+  navItems?: NavItem[];
+  omitSettings?: boolean;
 };
 
-export function Sidebar({ activePage, onSelectPage }: SidebarProps) {
+export function Sidebar({ activePage, onSelectPage, navItems = clinicNavItems, omitSettings = false }: SidebarProps) {
+  const visibleNavItems = omitSettings ? navItems.filter((item) => item.key !== "settings") : navItems;
+
   return (
     <aside className="flex w-full max-w-[280px] flex-col border-r border-[#d8e2d9] bg-[#fcfdf9] p-5">
       <div className="flex items-center gap-3 border-b border-[#e4ebe5] pb-5">
@@ -32,7 +36,7 @@ export function Sidebar({ activePage, onSelectPage }: SidebarProps) {
       </div>
 
       <nav className="mt-6 space-y-2">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const isActive = item.key === activePage;
 
           return (

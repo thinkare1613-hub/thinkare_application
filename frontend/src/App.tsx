@@ -4,8 +4,11 @@ import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
 import { validatePatientDoctorClinicMatch } from "./clinicValidation";
+import { validateOtpCode } from "./otpValidation";
 
-type Screen = "login" | "register" | "dashboard" | "appointments" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "settings";
+type Screen = "login" | "register" | "dashboard" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
+type AuthMode = "clinic_admin" | "patient";
+type UserRole = "clinic_admin" | "doctor" | "patient";
 
 type Appointment = {
   time: string;
@@ -18,7 +21,15 @@ type Appointment = {
 type Doctor = {
   id?: string;
   name: string;
-  specialty: string;
+  email: string;
+  phone: string;
+  specialization: string;
+  qualification: string;
+  licenseNumber: string;
+  experience: string;
+  profilePhoto: string;
+  consultationFee: number;
+  status: "Available" | "On leave" | "Booked";
   availability: string;
   rating: number;
   clinicId?: string;
@@ -49,6 +60,14 @@ const PATIENT_CLINIC_MAP: Record<string, string> = {
   "Naina Verma": CLINIC_ID,
 };
 
+const PATIENT_DOCTOR_ASSIGNMENTS: Record<string, string[]> = {
+  "Bhavani Patient": ["Dr. Ananya Rao"],
+  "Aarav Sharma": ["Dr. Ananya Rao"],
+  "Meera Iyer": ["Dr. Kabir Menon"],
+  "Kabir Khan": ["Dr. Aisha Patel"],
+  "Naina Verma": ["Dr. Rahul Bose"],
+};
+
 const initialAppointments: Appointment[] = [
   { time: "09:00 AM", patient: "Aarav Sharma", doctor: "Dr. Ananya Rao", service: "Consultation", status: "Confirmed" },
   { time: "10:30 AM", patient: "Meera Iyer", doctor: "Dr. Kabir Menon", service: "Follow-up", status: "Waiting" },
@@ -58,10 +77,70 @@ const initialAppointments: Appointment[] = [
 ];
 
 const initialDoctors: Doctor[] = [
-  { id: "doc-1", name: "Dr. Ananya Rao", specialty: "Cardiology", availability: "Available today", rating: 4.9, clinicId: CLINIC_ID },
-  { id: "doc-2", name: "Dr. Kabir Menon", specialty: "Dermatology", availability: "Next slot 1:00 PM", rating: 4.8, clinicId: CLINIC_ID },
-  { id: "doc-3", name: "Dr. Aisha Patel", specialty: "Pediatrics", availability: "Available today", rating: 5.0, clinicId: CLINIC_ID },
-  { id: "doc-4", name: "Dr. Rahul Bose", specialty: "Orthopedics", availability: "Next slot 3:30 PM", rating: 4.7, clinicId: CLINIC_ID },
+  {
+    id: "doc-1",
+    name: "Dr. Ananya Rao",
+    email: "ananya@abcdental.com",
+    phone: "+91 98765 12345",
+    specialization: "Cardiology",
+    qualification: "MD (Cardiology)",
+    licenseNumber: "KMC-CRD-2048",
+    experience: "12 years",
+    profilePhoto: "AR",
+    consultationFee: 1200,
+    status: "Available",
+    availability: "Available today",
+    rating: 4.9,
+    clinicId: CLINIC_ID,
+  },
+  {
+    id: "doc-2",
+    name: "Dr. Kabir Menon",
+    email: "kabir@abcdental.com",
+    phone: "+91 98765 67890",
+    specialization: "Dermatology",
+    qualification: "MBBS, MD (Dermatology)",
+    licenseNumber: "KMC-DER-1176",
+    experience: "9 years",
+    profilePhoto: "KM",
+    consultationFee: 950,
+    status: "Available",
+    availability: "Next slot 1:00 PM",
+    rating: 4.8,
+    clinicId: CLINIC_ID,
+  },
+  {
+    id: "doc-3",
+    name: "Dr. Aisha Patel",
+    email: "aisha@abcdental.com",
+    phone: "+91 98765 45210",
+    specialization: "Pediatrics",
+    qualification: "MBBS, DCH",
+    licenseNumber: "KMC-PED-3301",
+    experience: "11 years",
+    profilePhoto: "AP",
+    consultationFee: 850,
+    status: "Booked",
+    availability: "Available today",
+    rating: 5.0,
+    clinicId: CLINIC_ID,
+  },
+  {
+    id: "doc-4",
+    name: "Dr. Rahul Bose",
+    email: "rahul@abcdental.com",
+    phone: "+91 98765 99876",
+    specialization: "Orthopedics",
+    qualification: "MS (Orthopedics)",
+    licenseNumber: "KMC-ORT-4810",
+    experience: "14 years",
+    profilePhoto: "RB",
+    consultationFee: 1100,
+    status: "On leave",
+    availability: "Next slot 3:30 PM",
+    rating: 4.7,
+    clinicId: CLINIC_ID,
+  },
 ];
 
 const initialPatients: Patient[] = [
@@ -82,13 +161,17 @@ const quickActions = ["+ New appointment", "Patients", "Doctors", "Schedule"];
 
 const pageMeta: Record<Exclude<Screen, "login" | "register">, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Overview of patient flow and clinic performance." },
+  care_team: { title: "My Doctor / Care Team", subtitle: "View your assigned clinician and care team." },
   appointments: { title: "Appointments", subtitle: "Track visits, check-in status, and upcoming time slots." },
+  medical_records: { title: "Medical Records", subtitle: "Access your recent reports, summaries, and visit history." },
+  prescriptions: { title: "Prescriptions", subtitle: "Review active medicines and refill information." },
   patients: { title: "Patients", subtitle: "View patient history, records, and follow-up plans." },
   doctors: { title: "Doctors", subtitle: "Team coverage, schedules, and consultation workloads." },
   clinics: { title: "Clinics", subtitle: "Manage locations, capacity, and operational coverage." },
   availability: { title: "Availability", subtitle: "Control schedules, working hours, and open slots." },
   billing: { title: "Billing", subtitle: "Review payments, outstanding balances, and invoices." },
-  settings: { title: "Settings", subtitle: "Configure team roles, access, and clinic preferences." },
+  notifications: { title: "Notifications", subtitle: "Stay updated on reminders, follow-ups, and care alerts." },
+  profile: { title: "Profile", subtitle: "Manage your personal details and preferences." },
 };
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8001";
@@ -112,7 +195,11 @@ function statusClasses(status: Appointment["status"]) {
 
 function App() {
   const [screen, setScreen] = useState<Screen>("login");
+  const [authMode, setAuthMode] = useState<AuthMode>("clinic_admin");
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>("clinic_admin");
   const [email, setEmail] = useState("admin@gmail.com");
+  const [mobile, setMobile] = useState("+91 98765 43210");
+  const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("admin@123");
   const [clinicName, setClinicName] = useState("ABC Dental Clinic");
   const [adminName, setAdminName] = useState("Dr. John Smith");
@@ -126,6 +213,46 @@ function App() {
     address: "MG Road, Bengaluru",
     logo: "AB",
   });
+  const [registeredClinics, setRegisteredClinics] = useState<Record<string, typeof clinicProfile>>({
+    "admin@gmail.com": {
+      name: "ABC Dental Clinic",
+      admin: "Dr. John Smith",
+      email: "admin@gmail.com",
+      phone: "+91 98765 43210",
+      address: "MG Road, Bengaluru",
+      logo: "AB",
+    },
+    "bhavani@gmail.com": {
+      name: "Bhavani Clinic",
+      admin: "Bhavani",
+      email: "bhavani@gmail.com",
+      phone: "+91 9787847603",
+      address: "MG Road, Bengaluru",
+      logo: "BC",
+    },
+  });
+  const [patientAccounts, setPatientAccounts] = useState<Record<string, { name: string; clinicEmail: string; clinicName: string; password: string; clinicId: string; phone: string }>>({
+    "bhavani.patient@gmail.com": {
+      name: "Bhavani Patient",
+      clinicEmail: "bhavani@gmail.com",
+      clinicName: "Bhavani Clinic",
+      password: "patient@123",
+      clinicId: CLINIC_ID,
+      phone: "+91 98765 43210",
+    },
+  });
+
+  function applyClinicProfile(nextProfile: Partial<typeof clinicProfile> & { name?: string; admin?: string; email?: string; phone?: string; address?: string; logo?: string }) {
+    setClinicProfile((current) => ({
+      ...current,
+      name: nextProfile.name ?? current.name,
+      admin: nextProfile.admin ?? current.admin,
+      email: nextProfile.email ?? current.email,
+      phone: nextProfile.phone ?? current.phone,
+      address: nextProfile.address ?? current.address,
+      logo: nextProfile.logo ?? current.logo,
+    }));
+  }
   const [doctorList, setDoctorList] = useState<Doctor[]>(initialDoctors);
   const [patientList, setPatientList] = useState<Patient[]>(initialPatients);
   const [selectedPatientName, setSelectedPatientName] = useState(initialPatients[0].name);
@@ -138,9 +265,19 @@ function App() {
     time: "09:00 AM",
   });
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [selectedDoctorId, setSelectedDoctorId] = useState(initialDoctors[0]?.id ?? "");
+  const [editingDoctorId, setEditingDoctorId] = useState<string | null>(null);
   const [newDoctorForm, setNewDoctorForm] = useState({
     name: "",
-    specialty: "Cardiology",
+    email: "",
+    phone: "",
+    specialization: "Cardiology",
+    qualification: "MD (Cardiology)",
+    licenseNumber: "",
+    experience: "5 years",
+    profilePhoto: "DR",
+    consultationFee: 800,
+    status: "Available" as Doctor["status"],
     availability: "Available today",
     rating: 4.8,
   });
@@ -153,16 +290,85 @@ function App() {
   });
 
   const selectedPatient = patientList.find((entry) => entry.name === selectedPatientName) ?? patientList[0];
+  const assignedDoctorsForCurrentPatient = useMemo(() => {
+    const patientName = selectedPatient?.name ?? "Bhavani Patient";
+    const assignedDoctors = PATIENT_DOCTOR_ASSIGNMENTS[patientName] ?? [doctorList[0]?.name ?? "Dr. Ananya Rao"];
+
+    if (currentUserRole !== "patient") {
+      return doctorList.filter((doctor) => assignedDoctors.includes(doctor.name));
+    }
+
+    return doctorList.filter((doctor) => assignedDoctors.includes(doctor.name));
+  }, [currentUserRole, doctorList, selectedPatient]);
+
   const eligibleDoctors = useMemo(() => {
     if (!selectedPatient) {
       return doctorList;
     }
 
+    if (currentUserRole === "patient") {
+      return assignedDoctorsForCurrentPatient;
+    }
+
     return doctorList.filter((doctor) => doctor.clinicId === selectedPatient.clinicId || !doctor.clinicId || !selectedPatient.clinicId);
-  }, [doctorList, selectedPatient]);
+  }, [assignedDoctorsForCurrentPatient, currentUserRole, doctorList, selectedPatient]);
+
+  function handleSignOut() {
+    setCurrentUserRole("clinic_admin");
+    setOtp("");
+    setMobile("+91 98765 43210");
+    setScreen("login");
+    setMessage("You have been signed out.");
+  }
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (authMode === "patient") {
+      const otpError = validateOtpCode(otp);
+      if (otpError) {
+        setMessage(otpError);
+        return;
+      }
+
+      const patientEmail = (email || "").trim().toLowerCase();
+      const directPatient = patientEmail ? patientAccounts[patientEmail] : undefined;
+      const patientByPhone = Object.values(patientAccounts).find((entry) => entry.phone === mobile);
+      const resolvedPatient = directPatient ?? patientByPhone;
+
+      if (!resolvedPatient) {
+        setMessage("Patient account not found for this clinic.");
+        return;
+      }
+
+      if (resolvedPatient.password !== password && otp !== "123456") {
+        setMessage("Incorrect patient password or OTP.");
+        return;
+      }
+
+      const clinic = registeredClinics[resolvedPatient.clinicEmail] ?? {
+        name: resolvedPatient.clinicName,
+        admin: resolvedPatient.clinicName,
+        email: resolvedPatient.clinicEmail,
+        phone: resolvedPatient.phone || "+91 00000 00000",
+        address: "Clinic address",
+        logo: resolvedPatient.clinicName.slice(0, 2).toUpperCase(),
+      };
+
+      setClinicProfile({
+        name: clinic.name,
+        admin: clinic.admin,
+        email: clinic.email,
+        phone: clinic.phone,
+        address: clinic.address,
+        logo: clinic.logo,
+      });
+      setCurrentUserRole("patient");
+      setSelectedPatientName(resolvedPatient.name);
+      setMessage(`Welcome, ${resolvedPatient.name}. OTP verified successfully.`);
+      setScreen("dashboard");
+      return;
+    }
 
     try {
       const response = await fetch(`${apiUrl}/api/auth/login`, {
@@ -177,6 +383,28 @@ function App() {
 
       const data = await response.json();
       const clinicNameFromServer = data.user?.clinic_name || "Clinic Workspace";
+
+      if (registeredClinics[email]) {
+        const savedClinic = registeredClinics[email];
+        setClinicProfile({
+          name: savedClinic.name,
+          admin: savedClinic.admin,
+          email: savedClinic.email,
+          phone: savedClinic.phone,
+          address: savedClinic.address,
+          logo: savedClinic.logo,
+        });
+      } else {
+        applyClinicProfile({
+          name: clinicNameFromServer,
+          admin: adminName,
+          email,
+          phone,
+          logo: clinicNameFromServer.slice(0, 2).toUpperCase() || "CL",
+        });
+      }
+
+      setCurrentUserRole("clinic_admin");
       setMessage(`Welcome back, ${clinicNameFromServer}.`);
       setScreen("dashboard");
     } catch {
@@ -205,6 +433,32 @@ function App() {
         throw new Error(data?.detail || "Clinic registration failed");
       }
 
+      const nextProfile = {
+        name: clinicName,
+        admin: adminName,
+        email: data.email || email,
+        phone: phone || "+91 00000 00000",
+        address: "MG Road, Bengaluru",
+        logo: clinicName.slice(0, 2).toUpperCase() || "CL",
+      };
+
+      setRegisteredClinics((current) => ({
+        ...current,
+        [nextProfile.email]: nextProfile,
+      }));
+      setClinicProfile(nextProfile);
+      setPatientAccounts((current) => ({
+        ...current,
+        "bhavani.patient@gmail.com": {
+          name: "Bhavani Patient",
+          clinicEmail: nextProfile.email,
+          clinicName: nextProfile.name,
+          password: "patient@123",
+          clinicId: CLINIC_ID,
+          phone: phone || "+91 90000 00000",
+        },
+      }));
+      setCurrentUserRole("clinic_admin");
       setMessage(`Clinic account created for ${data.clinic_name}. Please sign in.`);
       setEmail(data.email);
       setPassword("");
@@ -249,20 +503,99 @@ function App() {
     setScreen("appointments");
   }
 
+  const selectedDoctor = doctorList.find((doctor) => doctor.id === selectedDoctorId) ?? doctorList[0];
+
+  function resetDoctorForm() {
+    setNewDoctorForm({
+      name: "",
+      email: "",
+      phone: "",
+      specialization: "Cardiology",
+      qualification: "MD (Cardiology)",
+      licenseNumber: "",
+      experience: "5 years",
+      profilePhoto: "DR",
+      consultationFee: 800,
+      status: "Available",
+      availability: "Available today",
+      rating: 4.8,
+    });
+    setEditingDoctorId(null);
+  }
+
   function handleAddDoctor(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!newDoctorForm.name.trim()) return;
+    const doctorName = newDoctorForm.name.trim();
+    if (!doctorName) return;
 
-    const addedDoctor: Doctor = {
-      name: newDoctorForm.name.trim(),
-      specialty: newDoctorForm.specialty,
+    const doctorPayload: Doctor = {
+      id: editingDoctorId ?? `doc-${Date.now()}`,
+      name: doctorName,
+      email: newDoctorForm.email.trim() || `${doctorName.toLowerCase().replace(/\s+/g, ".")}@clinic.com`,
+      phone: newDoctorForm.phone.trim() || "+91 90000 00000",
+      specialization: newDoctorForm.specialization,
+      qualification: newDoctorForm.qualification,
+      licenseNumber: newDoctorForm.licenseNumber.trim() || "Pending verification",
+      experience: newDoctorForm.experience,
+      profilePhoto: newDoctorForm.profilePhoto.trim() || doctorName.slice(0, 2).toUpperCase(),
+      consultationFee: Number(newDoctorForm.consultationFee) || 800,
+      status: newDoctorForm.status,
       availability: newDoctorForm.availability,
       rating: Number(newDoctorForm.rating),
+      clinicId: CLINIC_ID,
     };
 
-    setDoctorList((current) => [addedDoctor, ...current]);
-    setMessage(`${addedDoctor.name} was added to the clinic team.`);
-    setNewDoctorForm({ name: "", specialty: "Cardiology", availability: "Available today", rating: 4.8 });
+    setDoctorList((current) => {
+      if (editingDoctorId) {
+        return current.map((doctor) => (doctor.id === editingDoctorId ? doctorPayload : doctor));
+      }
+      return [doctorPayload, ...current];
+    });
+
+    setSelectedDoctorId(doctorPayload.id ?? "");
+    setMessage(
+      editingDoctorId
+        ? `${doctorPayload.name} was updated successfully.`
+        : `${doctorPayload.name} was added to the clinic team.`,
+    );
+    resetDoctorForm();
+  }
+
+  function handleEditDoctor(doctor: Doctor) {
+    setEditingDoctorId(doctor.id ?? null);
+    setSelectedDoctorId(doctor.id ?? "");
+    setNewDoctorForm({
+      name: doctor.name,
+      email: doctor.email,
+      phone: doctor.phone,
+      specialization: doctor.specialization,
+      qualification: doctor.qualification,
+      licenseNumber: doctor.licenseNumber,
+      experience: doctor.experience,
+      profilePhoto: doctor.profilePhoto,
+      consultationFee: doctor.consultationFee,
+      status: doctor.status,
+      availability: doctor.availability,
+      rating: doctor.rating,
+    });
+  }
+
+  function handleDeleteDoctor(doctorId: string | undefined) {
+    if (!doctorId) return;
+    const doctor = doctorList.find((entry) => entry.id === doctorId);
+    if (!doctor) return;
+    const confirmed = window.confirm(`Delete ${doctor.name} from this clinic?`);
+    if (!confirmed) return;
+
+    setDoctorList((current) => current.filter((entry) => entry.id !== doctorId));
+    if (selectedDoctorId === doctorId) {
+      const nextDoctor = doctorList.find((entry) => entry.id !== doctorId);
+      setSelectedDoctorId(nextDoctor?.id ?? "");
+    }
+    if (editingDoctorId === doctorId) {
+      resetDoctorForm();
+    }
+    setMessage(`${doctor.name} was removed from the clinic team.`);
   }
 
   function handleAddPatient(event: FormEvent<HTMLFormElement>) {
@@ -278,18 +611,31 @@ function App() {
       return;
     }
 
+    const patientEmail = (newPatientForm.email || `${newPatientForm.name.trim().toLowerCase().replace(/\s+/g, ".")}@clinic.com`).toLowerCase();
+    const patientPassword = "patient@123";
     const addedPatient: Patient = {
       name: newPatientForm.name.trim(),
-      email: newPatientForm.email || `${newPatientForm.name.trim().toLowerCase().replace(/\s+/g, ".")}@clinic.com`,
+      email: patientEmail,
       phone: newPatientForm.phone || "+91 90000 00000",
       lastVisit: "Today",
       clinicId: CLINIC_ID,
     };
 
     setAssignmentError(null);
+    setPatientAccounts((current) => ({
+      ...current,
+      [patientEmail]: {
+        name: addedPatient.name,
+        clinicEmail: email || "bhavani@gmail.com",
+        clinicName: clinicProfile.name || "Bhavani Clinic",
+        password: patientPassword,
+        clinicId: CLINIC_ID,
+        phone: addedPatient.phone,
+      },
+    }));
     setPatientList((current) => [addedPatient, ...current]);
     setSelectedPatientName(addedPatient.name);
-    setMessage(`${addedPatient.name} was added and assigned to ${newPatientForm.doctor}.`);
+    setMessage(`${addedPatient.name} was added and assigned to ${newPatientForm.doctor}. Patient login: ${patientEmail} / ${patientPassword}`);
     setNewPatientForm({ name: "", email: "", phone: "", lastVisit: "Today", doctor: "Dr. Ananya Rao" });
   }
 
@@ -351,54 +697,112 @@ function App() {
           <div className="flex items-center justify-center bg-[#f2f5f3] px-6 py-10 sm:px-10 lg:px-12">
             <div className="w-full max-w-[560px]">
               <h2 className="text-[3.2rem] font-bold tracking-[-0.06em] text-[#1d2d2a]">Welcome back</h2>
-              <p className="mt-3 text-[1.15rem] text-[#5c6664]">Sign in to your clinic dashboard</p>
+              <p className="mt-3 text-[1.15rem] text-[#5c6664]">{authMode === "clinic_admin" ? "Sign in to your clinic dashboard" : "Sign in with mobile and OTP for your clinic"}</p>
+
+              <div className="mt-6 flex rounded-2xl border border-[#d8e2d9] bg-white p-1.5">
+                {(["clinic_admin", "patient"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setAuthMode(mode)}
+                    className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${authMode === mode ? "bg-[#19b3a2] text-white shadow" : "text-[#587068]"}`}
+                  >
+                    {mode === "clinic_admin" ? "Clinic admin" : "Patient"}
+                  </button>
+                ))}
+              </div>
 
               <form onSubmit={login} className="mt-8">
-                <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
-                  Email address
-                  <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
-                      <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z" />
-                      <path d="m5 7 7 5 7-5" />
-                    </svg>
-                    <input
-                      value={email}
-                      onChange={(event) => setEmail(event.target.value)}
-                      required
-                      type="email"
-                      placeholder="clinic@domain.com"
-                      className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
-                    />
-                  </div>
-                </label>
+                {authMode === "clinic_admin" ? (
+                  <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
+                    Email address
+                    <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
+                        <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z" />
+                        <path d="m5 7 7 5 7-5" />
+                      </svg>
+                      <input
+                        value={email}
+                        onChange={(event) => setEmail(event.target.value)}
+                        required
+                        type="email"
+                        placeholder="clinic@domain.com"
+                        className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
+                      />
+                    </div>
+                  </label>
+                ) : (
+                  <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
+                    Mobile number
+                    <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
+                        <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
+                        <path d="M11 18.5h2" />
+                      </svg>
+                      <input
+                        value={mobile}
+                        onChange={(event) => setMobile(event.target.value)}
+                        required
+                        type="tel"
+                        placeholder="+91 98765 43210"
+                        className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
+                      />
+                    </div>
+                  </label>
+                )}
 
-                <div className="mt-7">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[1.05rem] font-medium text-[#2b3d3a]">Password</label>
-                    <button type="button" className="text-[1.02rem] font-medium text-[#19b3a2] hover:text-[#118f88]">
-                      Forgot password?
-                    </button>
+                {authMode === "patient" && (
+                  <div className="mt-7">
+                    <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
+                      OTP
+                      <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                        <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
+                          <path d="M7 10V8a5 5 0 0 1 10 0v2" />
+                          <rect x="5" y="10" width="14" height="9" rx="2" />
+                        </svg>
+                        <input
+                          value={otp}
+                          onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                          required
+                          inputMode="numeric"
+                          maxLength={6}
+                          placeholder="123456"
+                          className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
+                        />
+                      </div>
+                    </label>
                   </div>
+                )}
 
-                  <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
-                      <path d="M7 10V8a5 5 0 0 1 10 0v2" />
-                      <rect x="5" y="10" width="14" height="9" rx="2" />
-                    </svg>
-                    <input
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      required
-                      type="password"
-                      placeholder="Enter your password"
-                      className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
-                    />
-                    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
-                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
+                {authMode === "clinic_admin" && (
+                  <div className="mt-7">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[1.05rem] font-medium text-[#2b3d3a]">Password</label>
+                      <button type="button" className="text-[1.02rem] font-medium text-[#19b3a2] hover:text-[#118f88]">
+                        Forgot password?
+                      </button>
+                    </div>
+
+                    <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
+                        <path d="M7 10V8a5 5 0 0 1 10 0v2" />
+                        <rect x="5" y="10" width="14" height="9" rx="2" />
+                      </svg>
+                      <input
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                        required
+                        type="password"
+                        placeholder={authMode === "clinic_admin" ? "Enter your password" : "Enter clinic password or OTP fallback"}
+                        className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
+                      />
+                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
+                        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <label className="mt-6 flex items-center gap-3 text-[1rem] text-[#2b3d3a]">
                   <input type="checkbox" className="h-4 w-4 rounded border-[#cbd6d2] accent-[#19b3a2]" />
@@ -409,7 +813,7 @@ function App() {
                   type="submit"
                   className="mt-8 w-full rounded-xl bg-[#19b3a2] py-4 text-[1.1rem] font-bold text-white shadow-[0_12px_25px_rgba(25,179,162,0.28)] hover:bg-[#14a191]"
                 >
-                  Sign In
+                  {authMode === "clinic_admin" ? "Sign In as admin" : "Verify mobile & OTP"}
                 </button>
               </form>
 
@@ -528,14 +932,36 @@ function App() {
   }
 
   const activeMeta = pageMeta[screen as keyof typeof pageMeta];
+  const isPatientView = currentUserRole === "patient";
+  const patientNavItems = [
+    { key: "dashboard", label: "Dashboard", icon: "▣" },
+    { key: "care_team", label: "My Doctor / Care Team", icon: "◎" },
+    { key: "appointments", label: "Appointments", icon: "◫" },
+    { key: "medical_records", label: "Medical Records", icon: "◌" },
+    { key: "prescriptions", label: "Prescriptions", icon: "✓" },
+    { key: "billing", label: "Payments / Billing", icon: "◍" },
+    { key: "notifications", label: "Notifications", icon: "🔔" },
+    { key: "profile", label: "Profile", icon: "◉" },
+  ];
 
   return (
     <div className="min-h-screen bg-[#f3f6f3] text-[#17362c]">
       <div className="mx-auto flex max-w-[1600px]">
-        <Sidebar activePage={screen} onSelectPage={(page) => setScreen(page as Screen)} />
+        <Sidebar
+          activePage={screen}
+          onSelectPage={(page) => setScreen(page as Screen)}
+          navItems={isPatientView ? patientNavItems : undefined}
+          omitSettings={currentUserRole === "doctor"}
+        />
 
         <div className="flex min-h-screen flex-1 flex-col">
-          <Header title={activeMeta.title} subtitle={activeMeta.subtitle} />
+          <Header
+            title={activeMeta.title}
+            subtitle={activeMeta.subtitle}
+            userName={currentUserRole === "doctor" ? "Dr. Ananya Rao" : currentUserRole === "patient" ? "Bhavani Patient" : "Admin"}
+            userRole={currentUserRole === "doctor" ? "Doctor Profile" : currentUserRole === "patient" ? "Patient Access" : "Clinic Ops"}
+            onSignOut={handleSignOut}
+          />
 
           <main className="flex-1">
             {screen === "dashboard" && (
@@ -543,23 +969,27 @@ function App() {
                 <div className="flex flex-col gap-5 border-b border-[#d8e2d9] pb-6 md:flex-row md:items-end md:justify-between">
                   <div>
                     <p className="text-sm font-bold uppercase tracking-[.14em] text-[#19b3a2]">Monday, 30 August</p>
-                    <h2 className="mt-2 text-4xl font-bold tracking-[-0.04em] text-[#17362c] sm:text-5xl">Clinic operations dashboard</h2>
+                    <h2 className="mt-2 text-4xl font-bold tracking-[-0.04em] text-[#17362c] sm:text-5xl">
+                      {isPatientView ? "Patient care dashboard" : "Clinic operations dashboard"}
+                    </h2>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-3">
-                    {quickActions.map((action) => (
-                      <button
-                        key={action}
-                        className={
-                          action.startsWith("+")
-                            ? "rounded-xl bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white"
-                            : "rounded-xl border border-[#c7d5ca] bg-white px-4 py-2.5 text-sm font-semibold text-[#17362c]"
-                        }
-                      >
-                        {action}
-                      </button>
-                    ))}
-                  </div>
+                  {!isPatientView && (
+                    <div className="flex flex-wrap items-center gap-3">
+                      {quickActions.map((action) => (
+                        <button
+                          key={action}
+                          className={
+                            action.startsWith("+")
+                              ? "rounded-xl bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white"
+                              : "rounded-xl border border-[#c7d5ca] bg-white px-4 py-2.5 text-sm font-semibold text-[#17362c]"
+                          }
+                        >
+                          {action}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {message && (
@@ -574,7 +1004,15 @@ function App() {
                 )}
 
                 <div className="mt-8 grid gap-4 md:grid-cols-4">
-                  {summaryCards.map((card) => (
+                  {(isPatientView
+                    ? [
+                        { label: "Upcoming visits", value: "2", tone: "bg-[#19b3a2] text-white" },
+                        { label: "Care plan", value: "Active", tone: "bg-[#eaf5ef] text-[#0d523e]" },
+                        { label: "Records", value: "7", tone: "bg-[#fff7e9] text-[#8a5e00]" },
+                        { label: "Prescriptions", value: "3", tone: "bg-[#edf3ff] text-[#1f3d7a]" },
+                      ]
+                    : summaryCards
+                  ).map((card) => (
                     <div key={card.label} className={`rounded-2xl border border-[#d8e2d9] p-5 ${card.tone}`}>
                       <p className="text-sm font-medium opacity-80">{card.label}</p>
                       <p className="mt-3 text-3xl font-bold">{card.value}</p>
@@ -684,6 +1122,39 @@ function App() {
               </section>
             )}
 
+            {screen === "care_team" && (
+              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
+                <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+                  <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                    <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Care team</p>
+                    <h3 className="mt-2 text-3xl font-bold tracking-[-0.04em] text-[#17362c]">Your assigned doctor</h3>
+                    <div className="mt-6 rounded-2xl border border-[#dfe9e1] bg-white p-5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xl font-semibold text-[#17362c]">
+                            {assignedDoctorsForCurrentPatient[0]?.name ?? "Dr. Ananya Rao"}
+                          </p>
+                          <p className="mt-1 text-sm text-[#587068]">
+                            {assignedDoctorsForCurrentPatient[0]?.specialization ?? "Cardiology"} · {assignedDoctorsForCurrentPatient[0]?.availability ?? "Available today"}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-[#eaf9f7] px-2.5 py-1 text-xs font-semibold text-[#19b3a2]">On duty</span>
+                      </div>
+                      <p className="mt-4 text-sm text-[#587068]">Primary care coordination, specialist reviews, and follow-up planning are managed through this authorized clinic relationship.</p>
+                    </div>
+                  </div>
+                  <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                    <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Support</p>
+                    <ul className="mt-4 space-y-3 text-sm text-[#587068]">
+                      <li className="rounded-2xl bg-[#f5faf7] p-3">Nurse coordination: 9:00 AM - 5:00 PM</li>
+                      <li className="rounded-2xl bg-[#f5faf7] p-3">Lab review: Monday and Thursday</li>
+                      <li className="rounded-2xl bg-[#f5faf7] p-3">Care plan updates shared after clinic visits</li>
+                    </ul>
+                  </div>
+                </div>
+              </section>
+            )}
+
             {screen === "appointments" && (
               <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
                 <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
@@ -721,8 +1192,9 @@ function App() {
                           onChange={(event) => setBookingForm({ ...bookingForm, doctor: event.target.value })}
                           className="mt-2 w-full border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
                         >
-                          {doctorList
-                            .filter((doctor) => doctor.clinicId === (PATIENT_CLINIC_MAP[bookingForm.patient] ?? CLINIC_ID))
+                          {(currentUserRole === "patient"
+                            ? assignedDoctorsForCurrentPatient
+                            : doctorList.filter((doctor) => doctor.clinicId === (PATIENT_CLINIC_MAP[bookingForm.patient] ?? CLINIC_ID)))
                             .map((doctor) => (
                               <option key={doctor.name} value={doctor.name}>{doctor.name}</option>
                             ))}
@@ -778,13 +1250,13 @@ function App() {
                     <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
                       <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Available doctors</p>
                       <div className="mt-4 space-y-3">
-                        {doctorList.map((doctor) => (
+                        {(currentUserRole === "patient" ? assignedDoctorsForCurrentPatient : doctorList).map((doctor) => (
                           <div key={doctor.name} className="rounded-2xl border border-[#dfe9e1] bg-white p-3">
                             <div className="flex items-center justify-between">
                               <h4 className="text-base font-semibold text-[#17362c]">{doctor.name}</h4>
                               <span className="text-sm font-semibold text-[#19b3a2]">★ {doctor.rating}</span>
                             </div>
-                            <p className="mt-1 text-sm text-[#587068]">{doctor.specialty}</p>
+                            <p className="mt-1 text-sm text-[#587068]">{doctor.specialization}</p>
                             <p className="mt-2 text-xs font-medium uppercase tracking-[.12em] text-[#19b3a2]">{doctor.availability}</p>
                           </div>
                         ))}
@@ -807,6 +1279,84 @@ function App() {
                       </div>
                     </div>
                   </aside>
+                </div>
+              </section>
+            )}
+
+            {screen === "medical_records" && (
+              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
+                <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                  <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Medical records</p>
+                  <h3 className="mt-2 text-3xl font-bold tracking-[-0.05em] text-[#17362c]">Recent visit history</h3>
+                  <div className="mt-6 space-y-4">
+                    {[
+                      { title: "Consultation summary", date: "12 Aug 2026", detail: "Cardiac review and medication update." },
+                      { title: "Lab report", date: "08 Aug 2026", detail: "Routine blood work reviewed by the clinic team." },
+                      { title: "Follow-up note", date: "28 Jul 2026", detail: "Plan for continued care and monitoring." },
+                    ].map((record) => (
+                      <div key={record.title} className="rounded-2xl border border-[#dfe9e1] bg-white p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-lg font-semibold text-[#17362c]">{record.title}</p>
+                          <span className="text-xs font-bold uppercase tracking-[.12em] text-[#19b3a2]">{record.date}</span>
+                        </div>
+                        <p className="mt-2 text-sm text-[#587068]">{record.detail}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {screen === "prescriptions" && (
+              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
+                <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                  <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Prescriptions</p>
+                  <h3 className="mt-2 text-3xl font-bold tracking-[-0.05em] text-[#17362c]">Active medicines</h3>
+                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                    {[
+                      { name: "Amlodipine 5mg", timing: "Once daily", status: "Refill due in 7 days" },
+                      { name: "Vitamin D3", timing: "Once daily", status: "On track" },
+                    ].map((item) => (
+                      <div key={item.name} className="rounded-2xl border border-[#dfe9e1] bg-white p-4">
+                        <p className="text-lg font-semibold text-[#17362c]">{item.name}</p>
+                        <p className="mt-2 text-sm text-[#587068]">{item.timing}</p>
+                        <span className="mt-3 inline-flex rounded-full bg-[#eaf5ef] px-2.5 py-1 text-xs font-semibold text-[#0d523e]">{item.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {screen === "notifications" && (
+              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
+                <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                  <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Notifications</p>
+                  <h3 className="mt-2 text-3xl font-bold tracking-[-0.05em] text-[#17362c]">Care updates</h3>
+                  <div className="mt-6 space-y-3">
+                    {[
+                      "Your follow-up appointment is scheduled for Thursday at 10:30 AM.",
+                      "Prescription refill reminder for Amlodipine has been generated.",
+                      "New lab report from the clinic is ready to review.",
+                    ].map((message) => (
+                      <div key={message} className="rounded-2xl border border-[#dfe9e1] bg-white p-4 text-sm text-[#587068]">{message}</div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {screen === "profile" && (
+              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
+                <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                  <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Profile</p>
+                  <h3 className="mt-2 text-3xl font-bold tracking-[-0.04em] text-[#17362c]">Patient details</h3>
+                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                    <div className="rounded-2xl bg-[#f5faf7] p-4"><p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Name</p><p className="mt-2 text-lg font-semibold text-[#17362c]">Bhavani Patient</p></div>
+                    <div className="rounded-2xl bg-[#f5faf7] p-4"><p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Clinic</p><p className="mt-2 text-lg font-semibold text-[#17362c]">Bhavani Clinic</p></div>
+                    <div className="rounded-2xl bg-[#f5faf7] p-4"><p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Mobile</p><p className="mt-2 text-lg font-semibold text-[#17362c]">+91 98765 43210</p></div>
+                    <div className="rounded-2xl bg-[#f5faf7] p-4"><p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Email</p><p className="mt-2 text-lg font-semibold text-[#17362c]">bhavani.patient@gmail.com</p></div>
+                  </div>
                 </div>
               </section>
             )}
@@ -929,18 +1479,33 @@ function App() {
               <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
                 <div className="mb-6 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
                   <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Doctor management</p>
-                  <h3 className="mt-2 text-3xl font-bold tracking-[-0.05em] text-[#17362c]">Add new doctor</h3>
+                  <h3 className="mt-2 text-3xl font-bold tracking-[-0.05em] text-[#17362c]">
+                    {editingDoctorId ? "Edit doctor" : "Add new doctor"}
+                  </h3>
 
-                  <form onSubmit={handleAddDoctor} className="mt-5 grid gap-4 md:grid-cols-4">
+                  <form onSubmit={handleAddDoctor} className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <input
                       value={newDoctorForm.name}
                       onChange={(event) => setNewDoctorForm({ ...newDoctorForm, name: event.target.value })}
                       placeholder="Doctor name"
                       className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
                     />
+                    <input
+                      value={newDoctorForm.email}
+                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, email: event.target.value })}
+                      type="email"
+                      placeholder="Email"
+                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
+                    />
+                    <input
+                      value={newDoctorForm.phone}
+                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, phone: event.target.value })}
+                      placeholder="Phone"
+                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
+                    />
                     <select
-                      value={newDoctorForm.specialty}
-                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, specialty: event.target.value })}
+                      value={newDoctorForm.specialization}
+                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, specialization: event.target.value })}
                       className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
                     >
                       <option value="Cardiology">Cardiology</option>
@@ -950,32 +1515,156 @@ function App() {
                       <option value="General Medicine">General Medicine</option>
                     </select>
                     <input
-                      value={newDoctorForm.availability}
-                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, availability: event.target.value })}
-                      placeholder="Availability"
+                      value={newDoctorForm.qualification}
+                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, qualification: event.target.value })}
+                      placeholder="Qualification"
                       className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
                     />
-                    <button type="submit" className="rounded-xl bg-[#19b3a2] px-4 py-3 text-sm font-semibold text-white hover:bg-[#149d92]">
-                      Save doctor
-                    </button>
+                    <input
+                      value={newDoctorForm.licenseNumber}
+                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, licenseNumber: event.target.value })}
+                      placeholder="License number"
+                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
+                    />
+                    <input
+                      value={newDoctorForm.experience}
+                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, experience: event.target.value })}
+                      placeholder="Experience"
+                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
+                    />
+                    <input
+                      value={newDoctorForm.profilePhoto}
+                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, profilePhoto: event.target.value })}
+                      placeholder="Profile photo initials"
+                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
+                    />
+                    <input
+                      value={newDoctorForm.consultationFee}
+                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, consultationFee: Number(event.target.value) || 0 })}
+                      type="number"
+                      placeholder="Consultation fee"
+                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
+                    />
+                    <select
+                      value={newDoctorForm.status}
+                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, status: event.target.value as Doctor["status"] })}
+                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
+                    >
+                      <option value="Available">Available</option>
+                      <option value="On leave">On leave</option>
+                      <option value="Booked">Booked</option>
+                    </select>
+                    <input
+                      value={newDoctorForm.availability}
+                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, availability: event.target.value })}
+                      placeholder="Availability / schedule"
+                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
+                    />
+                    <input
+                      value={newDoctorForm.rating}
+                      onChange={(event) => setNewDoctorForm({ ...newDoctorForm, rating: Number(event.target.value) || 0 })}
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="5"
+                      placeholder="Rating"
+                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button type="submit" className="flex-1 rounded-xl bg-[#19b3a2] px-4 py-3 text-sm font-semibold text-white hover:bg-[#149d92]">
+                        {editingDoctorId ? "Update doctor" : "Save doctor"}
+                      </button>
+                      {editingDoctorId && (
+                        <button type="button" onClick={resetDoctorForm} className="rounded-xl border border-[#c7d5ca] bg-white px-4 py-3 text-sm font-semibold text-[#17362c]">
+                          Cancel
+                        </button>
+                      )}
+                    </div>
                   </form>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   {doctorList.map((doctor) => (
-                    <div key={doctor.name} className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                    <div key={doctor.id ?? doctor.name} className={`rounded-3xl border p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)] ${selectedDoctorId === doctor.id ? "border-[#19b3a2] bg-[#eaf9f7]" : "border-[#d8e2d9] bg-[#fcfdf9]"}`}>
                       <div className="flex items-center justify-between">
-                        <div className="grid size-12 place-items-center rounded-full bg-[#eaf9f7] text-lg font-bold text-[#19b3a2]">
-                          {doctor.name.slice(0, 1)}
-                        </div>
+                        <button type="button" onClick={() => setSelectedDoctorId(doctor.id ?? "")} className="grid size-12 place-items-center rounded-full bg-[#eaf9f7] text-lg font-bold text-[#19b3a2]">
+                          {doctor.profilePhoto || doctor.name.slice(0, 1)}
+                        </button>
                         <span className="text-sm font-semibold text-[#19b3a2]">★ {doctor.rating}</span>
                       </div>
-                      <h3 className="mt-4 text-xl font-semibold text-[#17362c]">{doctor.name}</h3>
-                      <p className="mt-1 text-sm text-[#587068]">{doctor.specialty}</p>
-                      <p className="mt-4 text-xs font-medium uppercase tracking-[.12em] text-[#19b3a2]">{doctor.availability}</p>
+
+                      <button type="button" onClick={() => setSelectedDoctorId(doctor.id ?? "")} className="mt-4 block text-left">
+                        <h3 className="text-xl font-semibold text-[#17362c]">{doctor.name}</h3>
+                        <p className="mt-1 text-sm text-[#587068]">{doctor.specialization}</p>
+                        <p className="mt-4 text-xs font-medium uppercase tracking-[.12em] text-[#19b3a2]">{doctor.availability}</p>
+                      </button>
+
+                      <div className="mt-4 flex gap-2">
+                        <button type="button" onClick={() => handleEditDoctor(doctor)} className="flex-1 rounded-xl border border-[#c7d5ca] bg-white px-3 py-2 text-sm font-semibold text-[#17362c]">
+                          Edit
+                        </button>
+                        <button type="button" onClick={() => handleDeleteDoctor(doctor.id)} className="flex-1 rounded-xl border border-[#e7b7bc] bg-[#fff0f2] px-3 py-2 text-sm font-semibold text-[#8a1f2d]">
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
+
+                {selectedDoctor && (
+                  <div className="mt-8 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                    <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Doctor profile</p>
+                    <div className="mt-5 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="grid size-16 place-items-center rounded-full bg-[#eaf9f7] text-2xl font-bold text-[#19b3a2]">
+                          {selectedDoctor.profilePhoto || selectedDoctor.name.slice(0, 1)}
+                        </div>
+                        <div>
+                          <h3 className="text-3xl font-bold tracking-[-0.05em] text-[#17362c]">{selectedDoctor.name}</h3>
+                          <p className="mt-1 text-sm text-[#587068]">{selectedDoctor.specialization}</p>
+                        </div>
+                      </div>
+                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${selectedDoctor.status === "Available" ? "bg-[#eaf5ef] text-[#0d523e]" : selectedDoctor.status === "Booked" ? "bg-[#edf3ff] text-[#1f3d7a]" : "bg-[#fff7e9] text-[#8a5e00]"}`}>
+                        {selectedDoctor.status}
+                      </span>
+                    </div>
+
+                    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-2xl bg-[#f5faf7] p-4">
+                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Email</p>
+                        <p className="mt-2 text-sm font-medium text-[#17362c]">{selectedDoctor.email}</p>
+                      </div>
+                      <div className="rounded-2xl bg-[#f5faf7] p-4">
+                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Phone</p>
+                        <p className="mt-2 text-sm font-medium text-[#17362c]">{selectedDoctor.phone}</p>
+                      </div>
+                      <div className="rounded-2xl bg-[#f5faf7] p-4">
+                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Qualification</p>
+                        <p className="mt-2 text-sm font-medium text-[#17362c]">{selectedDoctor.qualification}</p>
+                      </div>
+                      <div className="rounded-2xl bg-[#f5faf7] p-4">
+                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Experience</p>
+                        <p className="mt-2 text-sm font-medium text-[#17362c]">{selectedDoctor.experience}</p>
+                      </div>
+                      <div className="rounded-2xl bg-[#f5faf7] p-4">
+                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">License</p>
+                        <p className="mt-2 text-sm font-medium text-[#17362c]">{selectedDoctor.licenseNumber}</p>
+                      </div>
+                      <div className="rounded-2xl bg-[#f5faf7] p-4">
+                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Consultation fee</p>
+                        <p className="mt-2 text-sm font-medium text-[#17362c]">₹{selectedDoctor.consultationFee}</p>
+                      </div>
+                      <div className="rounded-2xl bg-[#f5faf7] p-4">
+                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Rating</p>
+                        <p className="mt-2 text-sm font-medium text-[#17362c]">★ {selectedDoctor.rating}</p>
+                      </div>
+                      <div className="rounded-2xl bg-[#f5faf7] p-4">
+                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Schedule</p>
+                        <p className="mt-2 text-sm font-medium text-[#17362c]">{selectedDoctor.availability}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </section>
             )}
 
@@ -1065,93 +1754,6 @@ function App() {
               </section>
             )}
 
-            {screen === "settings" && (
-              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
-                <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-                  <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                    <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Clinic profile</p>
-                    <div className="mt-5 flex items-center gap-4">
-                      <div className="grid size-16 place-items-center rounded-2xl bg-[#eaf9f7] text-xl font-bold text-[#19b3a2]">
-                        {clinicProfile.logo}
-                      </div>
-                      <div>
-                        <h3 className="text-2xl font-bold tracking-[-0.04em] text-[#17362c]">{clinicProfile.name}</h3>
-                        <p className="text-sm text-[#587068]">Clinic admin: {clinicProfile.admin}</p>
-                      </div>
-                    </div>
-
-                    <div className="mt-6 grid gap-4 md:grid-cols-2">
-                      <label className="text-sm font-semibold text-[#1f352f]">
-                        Clinic name
-                        <input
-                          value={clinicProfile.name}
-                          onChange={(event) => setClinicProfile((current) => ({ ...current, name: event.target.value }))}
-                          className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                        />
-                      </label>
-
-                      <label className="text-sm font-semibold text-[#1f352f]">
-                        Admin name
-                        <input
-                          value={clinicProfile.admin}
-                          onChange={(event) => setClinicProfile((current) => ({ ...current, admin: event.target.value }))}
-                          className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                        />
-                      </label>
-
-                      <label className="text-sm font-semibold text-[#1f352f]">
-                        Email
-                        <input
-                          value={clinicProfile.email}
-                          onChange={(event) => setClinicProfile((current) => ({ ...current, email: event.target.value }))}
-                          className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                        />
-                      </label>
-
-                      <label className="text-sm font-semibold text-[#1f352f]">
-                        Phone
-                        <input
-                          value={clinicProfile.phone}
-                          onChange={(event) => setClinicProfile((current) => ({ ...current, phone: event.target.value }))}
-                          className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                        />
-                      </label>
-                    </div>
-
-                    <label className="mt-4 block text-sm font-semibold text-[#1f352f]">
-                      Address
-                      <input
-                        value={clinicProfile.address}
-                        onChange={(event) => setClinicProfile((current) => ({ ...current, address: event.target.value }))}
-                        className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                      />
-                    </label>
-
-                    <button
-                      onClick={() => setMessage(`Clinic profile updated for ${clinicProfile.name}.`)}
-                      className="mt-6 rounded-xl bg-[#19b3a2] px-4 py-3 text-sm font-semibold text-white hover:bg-[#149d92]"
-                    >
-                      Save clinic profile
-                    </button>
-                  </div>
-
-                  <div className="space-y-5">
-                    {[
-                      { title: "User roles", text: "Admin, doctor, and reception access configured." },
-                      { title: "Notifications", text: "Appointment reminders and billing alerts enabled." },
-                      { title: "Security", text: "Two-factor auth and session policy active." },
-                      { title: "Integrations", text: "EMR, billing, and notification APIs connected." },
-                    ].map((setting) => (
-                      <div key={setting.title} className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                        <h3 className="text-xl font-semibold text-[#17362c]">{setting.title}</h3>
-                        <p className="mt-3 text-sm text-[#587068]">{setting.text}</p>
-                        <button className="mt-5 rounded-xl border border-[#c7d5ca] bg-white px-3 py-2 text-sm font-semibold text-[#17362c]">Manage</button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </section>
-            )}
           </main>
 
           <Footer />
