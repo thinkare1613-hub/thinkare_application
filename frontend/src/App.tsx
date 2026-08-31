@@ -652,29 +652,29 @@ function App() {
     return (
       <main className="min-h-screen bg-[#e8f1ee] text-[#17362c]">
         <section className="grid min-h-screen w-full lg:grid-cols-[1.08fr_0.92fr]">
-          <div className="bg-[#19b3a2] px-8 pb-8 pt-10 text-white sm:px-12 lg:px-14 lg:pb-12 lg:pt-12">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/80 bg-white/10 backdrop-blur-sm">
-                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-none stroke-current stroke-[1.8]" aria-hidden="true">
-                  <path d="M12 21c4.5-2.7 7.5-6.2 7.5-10.8A4.7 4.7 0 0 0 14.8 5.5c-1.1 0-2.1.4-2.9 1.2A4.1 4.1 0 0 0 9 5.5 4.7 4.7 0 0 0 4.5 10.2C4.5 14.8 7.5 18.3 12 21Z" />
-                  <path d="M10 10.5c.6-1 1.5-1.5 2.5-1.5 1.1 0 2 .6 2.5 1.5" />
-                  <path d="M9 16.5h6" />
-                </svg>
+<div className="bg-[#19b3a2] px-6 pb-8 pt-8 text-white sm:px-12 lg:px-14 lg:pb-12 lg:pt-12">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/80 bg-white/10 backdrop-blur-sm">
+                  <svg viewBox="0 0 24 24" className="h-6 w-6 fill-none stroke-current stroke-[1.8]" aria-hidden="true">
+                    <path d="M12 21c4.5-2.7 7.5-6.2 7.5-10.8A4.7 4.7 0 0 0 14.8 5.5c-1.1 0-2.1.4-2.9 1.2A4.1 4.1 0 0 0 9 5.5 4.7 4.7 0 0 0 4.5 10.2C4.5 14.8 7.5 18.3 12 21Z" />
+                    <path d="M10 10.5c.6-1 1.5-1.5 2.5-1.5 1.1 0 2 .6 2.5 1.5" />
+                    <path d="M9 16.5h6" />
+                  </svg>
+                </div>
+                <span className="text-[1.8rem] font-bold tracking-[-0.04em] sm:text-[2.1rem]">Thinkare</span>
               </div>
-              <span className="text-[2.1rem] font-bold tracking-[-0.04em]">Thinkare</span>
-            </div>
 
-            <div className="mt-16 inline-flex items-center rounded-full border border-white/30 bg-white/10 px-4 py-2 text-lg font-medium text-white/95 shadow-sm backdrop-blur-sm">
-              <span className="mr-3 inline-block h-2.5 w-2.5 rounded-full bg-white" />
-              Multi-tenant Healthcare Platform
-            </div>
+              <div className="mt-10 inline-flex items-center rounded-full border border-white/30 bg-white/10 px-4 py-2 text-sm font-medium text-white/95 shadow-sm backdrop-blur-sm sm:mt-16 sm:text-lg">
+                <span className="mr-3 inline-block h-2.5 w-2.5 rounded-full bg-white" />
+                Multi-tenant Healthcare Platform
+              </div>
 
-            <h1 className="mt-12 max-w-[620px] text-[4.2rem] font-bold leading-[0.96] tracking-[-0.06em] text-white">
-              One platform for
-              <span className="mt-2 block">many clinics</span>
-            </h1>
+              <h1 className="mt-8 max-w-[620px] text-[2.8rem] font-bold leading-[0.96] tracking-[-0.06em] text-white sm:mt-12 sm:text-[4.2rem]">
+                One platform for
+                <span className="mt-2 block">many clinics</span>
+              </h1>
 
-            <p className="mt-8 max-w-[620px] text-[1.25rem] leading-[1.6] text-white/90">
+              <p className="mt-6 max-w-[620px] text-base leading-[1.6] text-white/90 sm:mt-8 sm:text-[1.25rem]">
               Clinic owners can create their own workspace, upload a logo, manage doctors and patients, and keep data isolated inside their own tenant.
             </p>
 
@@ -946,7 +946,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#f3f6f3] text-[#17362c]">
-      <div className="mx-auto flex max-w-[1600px]">
+      <div className="mx-auto flex max-w-[1600px] flex-col lg:flex-row">
         <Sidebar
           activePage={screen}
           onSelectPage={(page) => setScreen(page as Screen)}
@@ -955,7 +955,7 @@ function App() {
           brandName={clinicProfile.name}
         />
 
-        <div className="flex min-h-screen flex-1 flex-col">
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col">
           <Header
             title={activeMeta.title}
             subtitle={activeMeta.subtitle}
