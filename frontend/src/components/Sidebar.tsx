@@ -20,17 +20,21 @@ type SidebarProps = {
   onSelectPage: (page: string) => void;
   navItems?: NavItem[];
   omitSettings?: boolean;
+  brandName?: string;
 };
 
-export function Sidebar({ activePage, onSelectPage, navItems = clinicNavItems, omitSettings = false }: SidebarProps) {
+export function Sidebar({ activePage, onSelectPage, navItems = clinicNavItems, omitSettings = false, brandName = "Thinkare" }: SidebarProps) {
   const visibleNavItems = omitSettings ? navItems.filter((item) => item.key !== "settings") : navItems;
+  const resolvedBrand = brandName?.trim() || "Thinkare";
 
   return (
     <aside className="flex w-full max-w-[280px] flex-col border-r border-[#d8e2d9] bg-[#fcfdf9] p-5">
       <div className="flex items-center gap-3 border-b border-[#e4ebe5] pb-5">
-        <div className="grid size-10 place-items-center rounded-xl bg-[#19b3a2] text-lg font-bold text-white">T</div>
+        <div className="grid size-10 place-items-center rounded-xl bg-[#19b3a2] text-lg font-bold text-white">
+          {resolvedBrand.slice(0, 1).toUpperCase() || "T"}
+        </div>
         <div>
-          <p className="font-serif text-2xl text-[#17362c]">Thinkare</p>
+          <p className="font-serif text-2xl text-[#17362c]">{resolvedBrand}</p>
           <p className="text-[10px] uppercase tracking-[.18em] text-[#587068]">care, made clear</p>
         </div>
       </div>

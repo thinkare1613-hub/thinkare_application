@@ -3,10 +3,11 @@ type HeaderProps = {
   subtitle: string;
   userName?: string;
   userRole?: string;
+  brandName?: string;
   onSignOut?: () => void;
 };
 
-export function Header({ title, subtitle, userName = "Admin", userRole = "Clinic Ops", onSignOut }: HeaderProps) {
+export function Header({ title, subtitle, userName = "Admin", userRole = "Clinic Ops", brandName = "Thinkare", onSignOut }: HeaderProps) {
   const initials = userName
     .split(" ")
     .filter(Boolean)
@@ -18,7 +19,7 @@ export function Header({ title, subtitle, userName = "Admin", userRole = "Clinic
     <header className="border-b border-[#d8e2d9] bg-[#fcfdf9] px-6 py-4">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[.16em] text-[#19b3a2]">Thinkare</p>
+          <p className="text-xs font-bold uppercase tracking-[.16em] text-[#19b3a2]">{brandName}</p>
           <h1 className="mt-1 font-serif text-3xl text-[#17362c]">{title}</h1>
           <p className="mt-1 text-sm text-[#587068]">{subtitle}</p>
         </div>

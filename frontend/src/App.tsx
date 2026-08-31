@@ -952,6 +952,7 @@ function App() {
           onSelectPage={(page) => setScreen(page as Screen)}
           navItems={isPatientView ? patientNavItems : undefined}
           omitSettings={currentUserRole === "doctor"}
+          brandName={clinicProfile.name}
         />
 
         <div className="flex min-h-screen flex-1 flex-col">
@@ -960,6 +961,7 @@ function App() {
             subtitle={activeMeta.subtitle}
             userName={currentUserRole === "doctor" ? "Dr. Ananya Rao" : currentUserRole === "patient" ? "Bhavani Patient" : "Admin"}
             userRole={currentUserRole === "doctor" ? "Doctor Profile" : currentUserRole === "patient" ? "Patient Access" : "Clinic Ops"}
+            brandName={clinicProfile.name}
             onSignOut={handleSignOut}
           />
 
