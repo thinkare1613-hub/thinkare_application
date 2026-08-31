@@ -313,6 +313,14 @@ function App() {
     return doctorList.filter((doctor) => doctor.clinicId === selectedPatient.clinicId || !doctor.clinicId || !selectedPatient.clinicId);
   }, [assignedDoctorsForCurrentPatient, currentUserRole, doctorList, selectedPatient]);
 
+  function resetRegistrationForm() {
+    setClinicName("");
+    setAdminName("");
+    setPhone("");
+    setPassword("");
+    setEmail("");
+  }
+
   function handleSignOut() {
     setCurrentUserRole("clinic_admin");
     setOtp("");
@@ -460,6 +468,7 @@ function App() {
       }));
       setCurrentUserRole("clinic_admin");
       setMessage(`Clinic account created for ${data.clinic_name}. Please sign in.`);
+      resetRegistrationForm();
       setEmail(data.email);
       setPassword("");
       setScreen("login");
@@ -825,7 +834,14 @@ function App() {
 
               <p className="mt-8 text-center text-[1.03rem] text-[#5c6664]">
                 Don&apos;t have a clinic account?{' '}
-                <button type="button" onClick={() => setScreen("register")} className="font-semibold text-[#19b3a2] hover:text-[#118f88]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetRegistrationForm();
+                    setScreen("register");
+                  }}
+                  className="font-semibold text-[#19b3a2] hover:text-[#118f88]"
+                >
                   Create clinic account
                 </button>
               </p>
@@ -846,7 +862,14 @@ function App() {
                 <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#19b3a2]">Thinkare</p>
                 <h2 className="mt-2 text-3xl font-bold tracking-[-0.05em] text-[#17362c]">Create clinic account</h2>
               </div>
-              <button type="button" onClick={() => setScreen("login")} className="rounded-xl border border-[#d8e2d9] px-3 py-2 text-sm font-medium text-[#17362c]">
+              <button
+                type="button"
+                onClick={() => {
+                  resetRegistrationForm();
+                  setScreen("login");
+                }}
+                className="rounded-xl border border-[#d8e2d9] px-3 py-2 text-sm font-medium text-[#17362c]"
+              >
                 Back to login
               </button>
             </div>
