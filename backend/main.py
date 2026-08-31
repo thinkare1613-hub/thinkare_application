@@ -50,14 +50,23 @@ allowed_origins = {
     "http://127.0.0.1:5175",
     "http://localhost:5176",
     "http://127.0.0.1:5176",
+    "https://thinkare-application-1.onrender.com",
 }
 configured_origin = os.getenv("FRONTEND_ORIGIN")
 if configured_origin:
     allowed_origins.add(configured_origin)
 
+additional_origins = os.getenv("ALLOWED_FRONTEND_ORIGINS", "")
+if additional_origins:
+    for origin in additional_origins.split(","):
+        value = origin.strip()
+        if value:
+            allowed_origins.add(value)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(allowed_origins),
+    allow_origin_regex=r"https://.*\.onrender\.com|http://localhost:\d+|http://127\.0\.0\.1:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
