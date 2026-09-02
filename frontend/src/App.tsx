@@ -8,6 +8,7 @@ import { validateOtpCode } from "./otpValidation";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { CreateClinicAccountPage } from "./pages/auth/CreateClinicAccountPage";
 import { MedicalRecordsPage } from "./components/medical-records/MedicalRecordsPage";
+import { AppointmentForm } from "./components/appointments/AppointmentForm";
 
 type Screen = "login" | "register" | "dashboard" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
 type AuthMode = "clinic_admin" | "patient";
@@ -935,132 +936,20 @@ function App() {
             {screen === "appointments" && (
               <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
                 <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
-                  <form onSubmit={handleBookingSubmit} className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                  <div>
                     {assignmentError && (
                       <p className="mb-4 rounded-xl border border-[#f3b3b3] bg-[#fbe9ea] px-4 py-3 text-sm text-[#7a2222]">
                         {assignmentError}
                       </p>
                     )}
-                   <div className="mb-5 flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">
-                          Booking
-                        </p>
-                        <h3 className="mt-2 font-serif text-3xl">
-                          Create appointment
-                        </h3>
-                      </div>
-                    </div>
-
-<div className="mb-6">
-  <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">
-    Appointment booking
-  </p>
-
-  <h3 className="mt-2 font-serif text-3xl font-semibold text-[#17362c]">
-    Schedule an appointment
-  </h3>
-
-  <p className="mt-2 text-sm leading-6 text-[#587068]">
-    Select a patient, doctor, service, date, and available time slot.
-  </p>
-</div>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <label className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-4 py-3 text-[#17362c] outline-none transition focus:border-[#19b3a2] focus:ring-2 focus:ring-[#19b3a2]/10">
-                        Patient
-                        <select
-                          value={bookingForm.patient}
-                          onChange={(event) => setBookingForm({ ...bookingForm, patient: event.target.value })}
-                          className="mt-2 w-full border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                        >
-                          {patientList.map((patient) => (
-                            <option key={patient.name} value={patient.name}>{patient.name}</option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="text-sm font-semibold text-[#1f352f]">
-                        Doctor
-                        <select
-                          value={bookingForm.doctor}
-                          onChange={(event) => setBookingForm({ ...bookingForm, doctor: event.target.value })}
-                          className="mt-2 w-full border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                        >
-                          {(currentUserRole === "patient"
-                            ? assignedDoctorsForCurrentPatient
-                            : doctorList.filter((doctor) => doctor.clinicId === (PATIENT_CLINIC_MAP[bookingForm.patient] ?? CLINIC_ID)))
-                            .map((doctor) => (
-                              <option key={doctor.name} value={doctor.name}>{doctor.name}</option>
-                            ))}
-                        </select>
-                      </label>
-
-                      <label className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-4 py-3 text-[#17362c] outline-none transition focus:border-[#19b3a2] focus:ring-2 focus:ring-[#19b3a2]/10">
-                        Service
-                        <select
-                          value={bookingForm.service}
-                          onChange={(event) => setBookingForm({ ...bookingForm, service: event.target.value })}
-                          className="mt-2 w-full border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                        >
-                          <option value="Consultation">Consultation</option>
-                          <option value="Follow-up">Follow-up</option>
-                          <option value="Check-up">Check-up</option>
-                          <option value="Diagnostic">Diagnostic</option>
-                        </select>
-                      </label>
-
-                      <div className="text-sm font-semibold text-[#1f352f]">
-  <p>Available time slots</p>
-
-  <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-    {[
-      "09:00 AM",
-      "10:30 AM",
-      "12:00 PM",
-      "02:15 PM",
-      "03:30 PM",
-    ].map((time) => {
-      const isSelected = bookingForm.time === time;
-
-      return (
-        <button
-          key={time}
-          type="button"
-          onClick={() =>
-            setBookingForm({
-              ...bookingForm,
-              time,
-            })
-          }
-          className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
-            isSelected
-              ? "border-[#19b3a2] bg-[#19b3a2] text-white shadow-sm"
-              : "border-[#c7d5ca] bg-white text-[#17362c] hover:border-[#19b3a2] hover:bg-[#f0faf8]"
-          }`}
-        >
-          {isSelected && <span className="mr-1">✓</span>}
-          {time}
-        </button>
-      );
-    })}
-  </div>
-</div>
-                    </div>
-
-                    <label className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-4 py-3 text-[#17362c] outline-none transition focus:border-[#19b3a2] focus:ring-2 focus:ring-[#19b3a2]/10">
-                      Preferred date
-                      <input
-                        type="date"
-                        value={bookingForm.date}
-                        onChange={(event) => setBookingForm({ ...bookingForm, date: event.target.value })}
-                        className="mt-2 w-full border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                      />
-                    </label>
-
-                    <button className="mt-6 w-full bg-[#19b3a2] px-4 py-3 text-base font-semibold text-white hover:bg-[#149d92]">
-                      Confirm appointment
-                    </button>
-                  </form>
+                    <AppointmentForm
+                      patients={patientList.map((patient) => ({ id: patient.id ?? patient.name, name: patient.name }))}
+                      doctors={(currentUserRole === "patient" ? assignedDoctorsForCurrentPatient : doctorList.filter((doctor) => doctor.clinicId === (PATIENT_CLINIC_MAP[bookingForm.patient] ?? CLINIC_ID))).map((doctor) => ({ id: doctor.id ?? doctor.name, name: doctor.name }))}
+                      form={bookingForm}
+                      onChange={(field, value) => setBookingForm((current) => ({ ...current, [field]: value }))}
+                      onSubmit={handleBookingSubmit}
+                    />
+                  </div>
 
                   <aside className="space-y-6">
                     <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
