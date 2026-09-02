@@ -7,6 +7,7 @@ import { validatePatientDoctorClinicMatch } from "./clinicValidation";
 import { validateOtpCode } from "./otpValidation";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { CreateClinicAccountPage } from "./pages/auth/CreateClinicAccountPage";
+import { MedicalRecordsPage } from "./components/medical-records/MedicalRecordsPage";
 
 type Screen = "login" | "register" | "dashboard" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
 type AuthMode = "clinic_admin" | "patient";
@@ -1099,27 +1100,7 @@ function App() {
             )}
 
             {screen === "medical_records" && (
-              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
-                <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                  <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Medical records</p>
-                  <h3 className="mt-2 text-3xl font-bold tracking-[-0.05em] text-[#17362c]">Recent visit history</h3>
-                  <div className="mt-6 space-y-4">
-                    {[
-                      { title: "Consultation summary", date: "12 Aug 2026", detail: "Cardiac review and medication update." },
-                      { title: "Lab report", date: "08 Aug 2026", detail: "Routine blood work reviewed by the clinic team." },
-                      { title: "Follow-up note", date: "28 Jul 2026", detail: "Plan for continued care and monitoring." },
-                    ].map((record) => (
-                      <div key={record.title} className="rounded-2xl border border-[#dfe9e1] bg-white p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-lg font-semibold text-[#17362c]">{record.title}</p>
-                          <span className="text-xs font-bold uppercase tracking-[.12em] text-[#19b3a2]">{record.date}</span>
-                        </div>
-                        <p className="mt-2 text-sm text-[#587068]">{record.detail}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </section>
+              <MedicalRecordsPage />
             )}
 
             {screen === "prescriptions" && (
