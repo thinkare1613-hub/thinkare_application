@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 export type NavItem = {
   key: string;
   label: string;
@@ -26,6 +28,7 @@ type SidebarProps = {
 export function Sidebar({ activePage, onSelectPage, navItems = clinicNavItems, omitSettings = false, brandName = "Thinkare" }: SidebarProps) {
   const visibleNavItems = omitSettings ? navItems.filter((item) => item.key !== "settings") : navItems;
   const resolvedBrand = brandName?.trim() || "Thinkare";
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
     <aside className="flex w-full flex-col border-b border-[#d8e2d9] bg-[#fcfdf9] p-4 sm:p-5 lg:max-w-[280px] lg:border-b-0 lg:border-r">
@@ -39,7 +42,20 @@ export function Sidebar({ activePage, onSelectPage, navItems = clinicNavItems, o
         </div>
       </div>
 
-      <nav className="mt-4 grid gap-2 sm:grid-cols-2 lg:mt-6 lg:grid-cols-1">
+      <button
+        type="button"
+        onClick={() => setIsMenuOpen((isOpen) => !isOpen)}
+        aria-expanded={isMenuOpen}
+        aria-controls="sidebar-navigation"
+        className="mt-4 flex w-full items-center justify-between rounded-xl border border-[#d8e2d9] bg-white px-4 py-3 text-left text-sm font-semibold text-[#17362c] lg:hidden"
+      >
+        <span>Menu</span>
+        <span className="text-lg leading-none text-[#19b3a2]" aria-hidden="true">
+          {isMenuOpen ? "−" : "+"}
+        </span>
+      </button>
+
+      <nav id="sidebar-navigation" className={`${isMenuOpen ? "grid" : "hidden"} mt-2 gap-2 lg:mt-6 lg:grid`}>
         {visibleNavItems.map((item) => {
           const isActive = item.key === activePage;
 
@@ -47,7 +63,10 @@ export function Sidebar({ activePage, onSelectPage, navItems = clinicNavItems, o
             <button
               key={item.key}
               type="button"
-              onClick={() => onSelectPage(item.key)}
+              onClick={() => {
+                onSelectPage(item.key);
+                setIsMenuOpen(false);
+              }}
               className={[
                 "flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm font-semibold transition",
                 isActive ? "bg-[#19b3a2] text-white shadow-sm" : "text-[#17362c] hover:bg-[#edf4f0]",

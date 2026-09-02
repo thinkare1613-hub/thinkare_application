@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "@storybook/react";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import { TimeSlotSelector } from "../../components/appointments/TimeSlotSelector";
 
 const meta: Meta<typeof TimeSlotSelector> = {

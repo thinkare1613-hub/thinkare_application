@@ -5,6 +5,8 @@ import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
 import { validatePatientDoctorClinicMatch } from "./clinicValidation";
 import { validateOtpCode } from "./otpValidation";
+import { LoginPage } from "./pages/auth/LoginPage";
+import { CreateClinicAccountPage } from "./pages/auth/CreateClinicAccountPage";
 
 type Screen = "login" | "register" | "dashboard" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
 type AuthMode = "clinic_admin" | "patient";
@@ -659,298 +661,47 @@ function App() {
 
   if (screen === "login") {
     return (
-      <main className="min-h-screen bg-[#e8f1ee] text-[#17362c]">
-        <section className="grid min-h-screen w-full lg:grid-cols-[1.08fr_0.92fr]">
-<div className="bg-[#19b3a2] px-6 pb-8 pt-8 text-white sm:px-12 lg:px-14 lg:pb-12 lg:pt-12">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/80 bg-white/10 backdrop-blur-sm">
-                  <svg viewBox="0 0 24 24" className="h-6 w-6 fill-none stroke-current stroke-[1.8]" aria-hidden="true">
-                    <path d="M12 21c4.5-2.7 7.5-6.2 7.5-10.8A4.7 4.7 0 0 0 14.8 5.5c-1.1 0-2.1.4-2.9 1.2A4.1 4.1 0 0 0 9 5.5 4.7 4.7 0 0 0 4.5 10.2C4.5 14.8 7.5 18.3 12 21Z" />
-                    <path d="M10 10.5c.6-1 1.5-1.5 2.5-1.5 1.1 0 2 .6 2.5 1.5" />
-                    <path d="M9 16.5h6" />
-                  </svg>
-                </div>
-                <span className="text-[1.8rem] font-bold tracking-[-0.04em] sm:text-[2.1rem]">Thinkare</span>
-              </div>
-
-              <div className="mt-10 inline-flex items-center rounded-full border border-white/30 bg-white/10 px-4 py-2 text-sm font-medium text-white/95 shadow-sm backdrop-blur-sm sm:mt-16 sm:text-lg">
-                <span className="mr-3 inline-block h-2.5 w-2.5 rounded-full bg-white" />
-                Multi-tenant Healthcare Platform
-              </div>
-
-              <h1 className="mt-8 max-w-[620px] text-[2.8rem] font-bold leading-[0.96] tracking-[-0.06em] text-white sm:mt-12 sm:text-[4.2rem]">
-                One platform for
-                <span className="mt-2 block">many clinics</span>
-              </h1>
-
-              <p className="mt-6 max-w-[620px] text-base leading-[1.6] text-white/90 sm:mt-8 sm:text-[1.25rem]">
-              Clinic owners can create their own workspace, upload a logo, manage doctors and patients, and keep data isolated inside their own tenant.
-            </p>
-
-            <div className="mt-14 grid max-w-[560px] grid-cols-3 gap-4 text-white">
-              <div>
-                <div className="text-[3rem] font-bold tracking-[-0.06em]">100+</div>
-                <div className="mt-1 text-[1.03rem] text-white/85">Clinic Workspaces</div>
-              </div>
-              <div>
-                <div className="text-[3rem] font-bold tracking-[-0.06em]">50K+</div>
-                <div className="mt-1 text-[1.03rem] text-white/85">Patients Managed</div>
-              </div>
-              <div>
-                <div className="text-[3rem] font-bold tracking-[-0.06em]">24/7</div>
-                <div className="mt-1 text-[1.03rem] text-white/85">Operational Access</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-center bg-[#f2f5f3] px-6 py-10 sm:px-10 lg:px-12">
-            <div className="w-full max-w-[560px]">
-              <h2 className="text-[3.2rem] font-bold tracking-[-0.06em] text-[#1d2d2a]">Welcome back</h2>
-              <p className="mt-3 text-[1.15rem] text-[#5c6664]">{authMode === "clinic_admin" ? "Sign in to your clinic dashboard" : "Sign in with mobile and OTP for your clinic"}</p>
-
-              <div className="mt-6 flex rounded-2xl border border-[#d8e2d9] bg-white p-1.5">
-                {(["clinic_admin", "patient"] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setAuthMode(mode)}
-                    className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${authMode === mode ? "bg-[#19b3a2] text-white shadow" : "text-[#587068]"}`}
-                  >
-                    {mode === "clinic_admin" ? "Clinic admin" : "Patient"}
-                  </button>
-                ))}
-              </div>
-
-              <form onSubmit={login} className="mt-8">
-                {authMode === "clinic_admin" ? (
-                  <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
-                    Email address
-                    <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
-                        <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h11A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9Z" />
-                        <path d="m5 7 7 5 7-5" />
-                      </svg>
-                      <input
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        required
-                        type="email"
-                        placeholder="clinic@domain.com"
-                        className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
-                      />
-                    </div>
-                  </label>
-                ) : (
-                  <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
-                    Mobile number
-                    <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
-                        <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
-                        <path d="M11 18.5h2" />
-                      </svg>
-                      <input
-                        value={mobile}
-                        onChange={(event) => setMobile(event.target.value)}
-                        required
-                        type="tel"
-                        placeholder="+91 98765 43210"
-                        className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
-                      />
-                    </div>
-                  </label>
-                )}
-
-                {authMode === "patient" && (
-                  <div className="mt-7">
-                    <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
-                      OTP
-                      <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-                        <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
-                          <path d="M7 10V8a5 5 0 0 1 10 0v2" />
-                          <rect x="5" y="10" width="14" height="9" rx="2" />
-                        </svg>
-                        <input
-                          value={otp}
-                          onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                          required
-                          inputMode="numeric"
-                          maxLength={6}
-                          placeholder="123456"
-                          className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
-                        />
-                      </div>
-                    </label>
-                  </div>
-                )}
-
-                {authMode === "clinic_admin" && (
-                  <div className="mt-7">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[1.05rem] font-medium text-[#2b3d3a]">Password</label>
-                      <button type="button" className="text-[1.02rem] font-medium text-[#19b3a2] hover:text-[#118f88]">
-                        Forgot password?
-                      </button>
-                    </div>
-
-                    <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
-                        <path d="M7 10V8a5 5 0 0 1 10 0v2" />
-                        <rect x="5" y="10" width="14" height="9" rx="2" />
-                      </svg>
-                      <input
-                        value={password}
-                        onChange={(event) => setPassword(event.target.value)}
-                        required
-                        type="password"
-                        placeholder={authMode === "clinic_admin" ? "Enter your password" : "Enter clinic password or OTP fallback"}
-                        className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
-                      />
-                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
-                        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
-                        <circle cx="12" cy="12" r="3" />
-                      </svg>
-                    </div>
-                  </div>
-                )}
-
-                <label className="mt-6 flex items-center gap-3 text-[1rem] text-[#2b3d3a]">
-                  <input type="checkbox" className="h-4 w-4 rounded border-[#cbd6d2] accent-[#19b3a2]" />
-                  Remember me for 30 days
-                </label>
-
-                <button
-                  type="submit"
-                  className="mt-8 w-full rounded-xl bg-[#19b3a2] py-4 text-[1.1rem] font-bold text-white shadow-[0_12px_25px_rgba(25,179,162,0.28)] hover:bg-[#14a191]"
-                >
-                  {authMode === "clinic_admin" ? "Sign In as admin" : "Verify mobile & OTP"}
-                </button>
-              </form>
-
-              {message && (
-                <p className="mt-6 rounded-xl border border-[#9bc7af] bg-[#e4f1e8] px-4 py-3 text-sm text-[#0d523e]">
-                  {message}
-                </p>
-              )}
-
-              <p className="mt-8 text-center text-[1.03rem] text-[#5c6664]">
-                Don&apos;t have a clinic account?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetRegistrationForm();
-                    setScreen("register");
-                  }}
-                  className="font-semibold text-[#19b3a2] hover:text-[#118f88]"
-                >
-                  Create clinic account
-                </button>
-              </p>
-            </div>
-          </div>
-        </section>
-      </main>
+      <LoginPage
+        authMode={authMode}
+        email={email}
+        mobile={mobile}
+        otp={otp}
+        password={password}
+        message={message}
+        onAuthModeChange={setAuthMode}
+        onEmailChange={setEmail}
+        onMobileChange={setMobile}
+        onOtpChange={setOtp}
+        onPasswordChange={setPassword}
+        onSubmit={login}
+        onCreateClinicClick={() => {
+          resetRegistrationForm();
+          setScreen("register");
+        }}
+      />
     );
   }
 
   if (screen === "register") {
     return (
-      <main className="min-h-screen bg-[#e8f1ee] text-[#17362c]">
-        <section className="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-6 py-10">
-          <div className="w-full max-w-2xl rounded-[28px] border border-[#d8e2d9] bg-white p-8 shadow-[0_20px_40px_rgba(18,58,49,0.08)]">
-            <div className="mb-8 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#19b3a2]">Thinkare</p>
-                <h2 className="mt-2 text-3xl font-bold tracking-[-0.05em] text-[#17362c]">Create clinic account</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  resetRegistrationForm();
-                  setScreen("login");
-                }}
-                className="rounded-xl border border-[#d8e2d9] px-3 py-2 text-sm font-medium text-[#17362c]"
-              >
-                Back to login
-              </button>
-            </div>
-
-            <form onSubmit={registerClinic} className="space-y-5">
-              <div className="grid gap-5 md:grid-cols-2">
-                <label className="text-sm font-semibold text-[#1f352f]">
-                  Clinic name
-                  <input
-                    value={clinicName}
-                    onChange={(event) => setClinicName(event.target.value)}
-                    required
-                    className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-[#f8fbfa] px-3 py-3 text-[#17362c] outline-none"
-                    placeholder="ABC Dental Clinic"
-                  />
-                </label>
-
-                <label className="text-sm font-semibold text-[#1f352f]">
-                  Admin name
-                  <input
-                    value={adminName}
-                    onChange={(event) => setAdminName(event.target.value)}
-                    required
-                    className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-[#f8fbfa] px-3 py-3 text-[#17362c] outline-none"
-                    placeholder="Dr. John Smith"
-                  />
-                </label>
-              </div>
-
-              <div className="grid gap-5 md:grid-cols-2">
-                <label className="text-sm font-semibold text-[#1f352f]">
-                  Email
-                  <input
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    required
-                    type="email"
-                    className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-[#f8fbfa] px-3 py-3 text-[#17362c] outline-none"
-                    placeholder="clinic@domain.com"
-                  />
-                </label>
-
-                <label className="text-sm font-semibold text-[#1f352f]">
-                  Phone
-                  <input
-                    value={phone}
-                    onChange={(event) => setPhone(event.target.value)}
-                    className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-[#f8fbfa] px-3 py-3 text-[#17362c] outline-none"
-                    placeholder="+91 98765 43210"
-                  />
-                </label>
-              </div>
-
-              <label className="block text-sm font-semibold text-[#1f352f]">
-                Password
-                <input
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                  type="password"
-                  className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-[#f8fbfa] px-3 py-3 text-[#17362c] outline-none"
-                  placeholder="Create a secure password"
-                />
-              </label>
-
-              <button
-                type="submit"
-                className="w-full rounded-xl bg-[#19b3a2] px-4 py-3.5 text-base font-bold text-white shadow-[0_12px_25px_rgba(25,179,162,0.28)] hover:bg-[#14a191]"
-              >
-                Create clinic account
-              </button>
-            </form>
-
-            {message && (
-              <p className="mt-6 rounded-xl border border-[#9bc7af] bg-[#e4f1e8] px-4 py-3 text-sm text-[#0d523e]">
-                {message}
-              </p>
-            )}
-          </div>
-        </section>
-      </main>
+      <CreateClinicAccountPage
+        clinicName={clinicName}
+        adminName={adminName}
+        email={email}
+        phone={phone}
+        password={password}
+        message={message}
+        onClinicNameChange={setClinicName}
+        onAdminNameChange={setAdminName}
+        onEmailChange={setEmail}
+        onPhoneChange={setPhone}
+        onPasswordChange={setPassword}
+        onSubmit={registerClinic}
+        onBackToLogin={() => {
+          resetRegistrationForm();
+          setScreen("login");
+        }}
+      />
     );
   }
 
@@ -1189,15 +940,32 @@ function App() {
                         {assignmentError}
                       </p>
                     )}
-                    <div className="mb-5 flex items-center justify-between">
+                   <div className="mb-5 flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Booking</p>
-                        <h3 className="mt-2 font-serif text-3xl">Create appointment</h3>
+                        <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">
+                          Booking
+                        </p>
+                        <h3 className="mt-2 font-serif text-3xl">
+                          Create appointment
+                        </h3>
                       </div>
                     </div>
 
+<div className="mb-6">
+  <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">
+    Appointment booking
+  </p>
+
+  <h3 className="mt-2 font-serif text-3xl font-semibold text-[#17362c]">
+    Schedule an appointment
+  </h3>
+
+  <p className="mt-2 text-sm leading-6 text-[#587068]">
+    Select a patient, doctor, service, date, and available time slot.
+  </p>
+</div>
                     <div className="grid gap-4 md:grid-cols-2">
-                      <label className="text-sm font-semibold text-[#1f352f]">
+                      <label className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-4 py-3 text-[#17362c] outline-none transition focus:border-[#19b3a2] focus:ring-2 focus:ring-[#19b3a2]/10">
                         Patient
                         <select
                           value={bookingForm.patient}
@@ -1226,7 +994,7 @@ function App() {
                         </select>
                       </label>
 
-                      <label className="text-sm font-semibold text-[#1f352f]">
+                      <label className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-4 py-3 text-[#17362c] outline-none transition focus:border-[#19b3a2] focus:ring-2 focus:ring-[#19b3a2]/10">
                         Service
                         <select
                           value={bookingForm.service}
@@ -1240,23 +1008,45 @@ function App() {
                         </select>
                       </label>
 
-                      <label className="text-sm font-semibold text-[#1f352f]">
-                        Time slot
-                        <select
-                          value={bookingForm.time}
-                          onChange={(event) => setBookingForm({ ...bookingForm, time: event.target.value })}
-                          className="mt-2 w-full border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                        >
-                          <option value="09:00 AM">09:00 AM</option>
-                          <option value="10:30 AM">10:30 AM</option>
-                          <option value="12:00 PM">12:00 PM</option>
-                          <option value="02:15 PM">02:15 PM</option>
-                          <option value="03:30 PM">03:30 PM</option>
-                        </select>
-                      </label>
+                      <div className="text-sm font-semibold text-[#1f352f]">
+  <p>Available time slots</p>
+
+  <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+    {[
+      "09:00 AM",
+      "10:30 AM",
+      "12:00 PM",
+      "02:15 PM",
+      "03:30 PM",
+    ].map((time) => {
+      const isSelected = bookingForm.time === time;
+
+      return (
+        <button
+          key={time}
+          type="button"
+          onClick={() =>
+            setBookingForm({
+              ...bookingForm,
+              time,
+            })
+          }
+          className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+            isSelected
+              ? "border-[#19b3a2] bg-[#19b3a2] text-white shadow-sm"
+              : "border-[#c7d5ca] bg-white text-[#17362c] hover:border-[#19b3a2] hover:bg-[#f0faf8]"
+          }`}
+        >
+          {isSelected && <span className="mr-1">✓</span>}
+          {time}
+        </button>
+      );
+    })}
+  </div>
+</div>
                     </div>
 
-                    <label className="mt-4 block text-sm font-semibold text-[#1f352f]">
+                    <label className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-4 py-3 text-[#17362c] outline-none transition focus:border-[#19b3a2] focus:ring-2 focus:ring-[#19b3a2]/10">
                       Preferred date
                       <input
                         type="date"
