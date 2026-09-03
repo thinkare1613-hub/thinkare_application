@@ -1,0 +1,3 @@
+import { StyleSheet, Text, View } from "react-native";
+export function MedicalRecordCard({ title, date, category }: { title: string; date: string; category: string }) { return <View style={styles.card}><Text style={styles.category}>{category}</Text><Text style={styles.title}>{title}</Text><Text style={styles.date}>{date}</Text></View>; }
+const styles = StyleSheet.create({ card: { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: "#d7e6df", padding: 16 }, category: { color: "#0d8f7c", fontSize: 12, fontWeight: "800", letterSpacing: 1 }, title: { color: "#17362c", fontSize: 16, fontWeight: "700", marginTop: 8 }, date: { color: "#587068", marginTop: 5 } });
