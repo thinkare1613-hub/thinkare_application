@@ -4,4 +4,4 @@ import { UploadRecordModal } from "../../components/medical-records/UploadRecord
 const meta: Meta<typeof UploadRecordModal> = { title: "Medical Records/UploadRecordModal", component: UploadRecordModal };
 export default meta;
 type Story = StoryObj<typeof UploadRecordModal>;
-export const Open: Story = { args: { isOpen: true, onClose: () => undefined } };
+export const Open: Story = { args: { isOpen: true, onClose: () => undefined, onUpload: () => undefined } };
