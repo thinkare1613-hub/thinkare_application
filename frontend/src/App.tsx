@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
@@ -293,6 +293,29 @@ function App() {
     doctor: "Dr. Ananya Rao",
   });
 
+  useEffect(() => {
+    const clinicSlug = window.location.pathname.match(/^\/clinic\/([^/]+)$/)?.[1];
+    if (!clinicSlug) return;
+
+    fetch(`${apiUrl}/api/public/clinics/${encodeURIComponent(clinicSlug)}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Clinic booking page not found");
+        return response.json();
+      })
+      .then((clinic) => {
+        setClinicProfile((current) => ({
+          ...current,
+          name: clinic.name,
+          address: clinic.address,
+          logo: clinic.name.slice(0, 2).toUpperCase(),
+        }));
+        setAuthMode("patient");
+        setScreen("login");
+        setMessage(`Welcome to ${clinic.name}. Sign in with your mobile number to book an appointment.`);
+      })
+      .catch((error: Error) => setMessage(error.message));
+  }, []);
+
   const selectedPatient = patientList.find((entry) => entry.name === selectedPatientName) ?? patientList[0];
   const assignedDoctorsForCurrentPatient = useMemo(() => {
     const patientName = selectedPatient?.name ?? "Bhavani Patient";
@@ -471,7 +494,8 @@ function App() {
         },
       }));
       setCurrentUserRole("clinic_admin");
-      setMessage(`Clinic account created for ${data.clinic_name}. Please sign in.`);
+      const bookingUrl = data.public_slug ? `${window.location.origin}/clinic/${data.public_slug}` : "";
+      setMessage(`Clinic account created for ${data.clinic_name}. Patient booking URL: ${bookingUrl}`);
       resetRegistrationForm();
       setEmail(data.email);
       setPassword("");

@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -309,6 +310,11 @@ def ensure_same_clinic(user: dict[str, str], clinic_id: str | UUID | None, *, fi
         raise HTTPException(status_code=403, detail="This resource belongs to another clinic")
 
 
+def clinic_slug(clinic_name: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", clinic_name.lower()).strip("-")
+    return f"{normalized[:90] or 'clinic'}-{uuid4().hex[:8]}"
+
+
 def ensure_record_access(record: tuple[object, ...], user: dict[str, str], connection) -> None:
     ensure_same_clinic(user, record[1], field_name="record.clinic_id")
     if user["role"] == "PATIENT":
@@ -403,6 +409,18 @@ def health() -> dict[str, str]:
         raise HTTPException(status_code=503, detail="Database connection failed") from error
 
 
+@app.get("/api/public/clinics/{public_slug}")
+def public_clinic(public_slug: str) -> dict[str, str]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        clinic = connection.execute(
+            "SELECT name FROM clinics WHERE public_slug = %s AND status = 'APPROVED'",
+            (public_slug,),
+        ).fetchone()
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic booking page not found")
+    return {"name": clinic[0], "logo_url": "", "address": ""}
+
+
 @app.post("/api/auth/login")
 def login(credentials: LoginRequest) -> dict[str, object]:
     try:
@@ -412,7 +430,7 @@ def login(credentials: LoginRequest) -> dict[str, object]:
                 SELECT users.id, users.password_hash, roles.name, clinics.id, clinics.name
                 FROM users
                 JOIN roles ON roles.id = users.role_id
-                LEFT JOIN clinic_admins ON clinic_admins.email = users.email
+                LEFT JOIN clinic_admins ON clinic_admins.user_id = users.id
                 LEFT JOIN clinics ON clinics.id = clinic_admins.clinic_id
                 WHERE users.email = %s AND users.is_active = TRUE
                 """,
@@ -456,8 +474,9 @@ def login(credentials: LoginRequest) -> dict[str, object]:
 
 @app.post("/api/auth/register-clinic", status_code=status.HTTP_201_CREATED)
 def register_clinic(account: ClinicRegisterRequest) -> dict[str, object]:
-    clinic_id = f"clinic-{uuid4().hex[:8]}"
-    user_id = f"user-{uuid4().hex[:8]}"
+    clinic_id = str(uuid4())
+    user_id = str(uuid4())
+    public_slug = clinic_slug(account.clinic_name)
     hashed_password = password_hash.hash(account.password)
 
     try:
@@ -468,11 +487,11 @@ def register_clinic(account: ClinicRegisterRequest) -> dict[str, object]:
 
             clinic_record = connection.execute(
                 """
-                INSERT INTO clinics (id, name, email, phone, address, logo_url, status)
-                VALUES (%s, %s, %s, %s, %s, %s, 'active')
+                INSERT INTO clinics (id, name, email, phone, address_line1, status, public_slug)
+                VALUES (%s, %s, %s, %s, %s, 'APPROVED', %s)
                 RETURNING id
                 """,
-                (clinic_id, account.clinic_name, str(account.email), account.phone or "", "", "",),
+                (clinic_id, account.clinic_name, str(account.email), account.phone or "", "", public_slug),
             ).fetchone()
 
             connection.execute(
@@ -485,11 +504,12 @@ def register_clinic(account: ClinicRegisterRequest) -> dict[str, object]:
 
             connection.execute(
                 """
-                INSERT INTO clinic_admins (clinic_id, name, email, password_hash, is_verified)
-                VALUES (%s, %s, %s, %s, TRUE)
+                INSERT INTO clinic_admins (clinic_id, user_id)
+                VALUES (%s, %s)
                 """,
-                (clinic_record[0], account.admin_name, str(account.email), hashed_password),
+                (clinic_record[0], user_id),
             )
+            connection.execute("UPDATE clinics SET created_by = %s WHERE id = %s", (user_id, clinic_record[0]))
             connection.commit()
 
             return {
@@ -498,6 +518,7 @@ def register_clinic(account: ClinicRegisterRequest) -> dict[str, object]:
                 "admin_name": account.admin_name,
                 "email": str(account.email),
                 "status": "active",
+                "public_slug": public_slug,
             }
     except psycopg.errors.UniqueViolation:
         raise HTTPException(status_code=409, detail="A clinic or admin account already exists for this email")
@@ -526,6 +547,7 @@ def register_clinic(account: ClinicRegisterRequest) -> dict[str, object]:
         "admin_name": account.admin_name,
         "email": str(account.email),
         "status": "active",
+        "public_slug": public_slug,
     }
 
 
