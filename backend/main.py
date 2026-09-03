@@ -1054,6 +1054,29 @@ def create_invoice(
     return {"id": str(record[0]), "invoice_number": number, "total": total, "status": invoice.status}
 
 
+@app.put("/api/invoices/{invoice_id}")
+def update_invoice(invoice_id: UUID, invoice: InvoiceCreateRequest, user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN"))) -> dict[str, object]:
+    if invoice.status not in {"UNPAID", "PARTIALLY_PAID", "PAID", "OVERDUE", "CANCELLED"}:
+        raise HTTPException(status_code=400, detail="Unsupported invoice status")
+    total = invoice.subtotal - invoice.discount + invoice.tax
+    with psycopg.connect(DATABASE_URL) as connection:
+        record = connection.execute("UPDATE invoices SET patient_id = %s, appointment_id = %s, subtotal = %s, discount = %s, tax = %s, total = %s, status = %s, payment_method = %s WHERE id = %s AND clinic_id = %s RETURNING id, invoice_number", (invoice.patient_id, invoice.appointment_id, invoice.subtotal, invoice.discount, invoice.tax, total, invoice.status, invoice.payment_method, invoice_id, user["clinic_id"])).fetchone()
+        if not record:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        connection.commit()
+    return {"id": str(record[0]), "invoice_number": record[1], "total": total, "status": invoice.status}
+
+
+@app.delete("/api/invoices/{invoice_id}")
+def delete_invoice(invoice_id: UUID, user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN"))) -> dict[str, str]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        record = connection.execute("DELETE FROM invoices WHERE id = %s AND clinic_id = %s RETURNING id", (invoice_id, user["clinic_id"])).fetchone()
+        if not record:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        connection.commit()
+    return {"message": "Invoice deleted successfully"}
+
+
 @app.get("/api/notifications")
 def notifications(user: dict[str, str] = Depends(current_user)) -> list[dict[str, object]]:
     with psycopg.connect(DATABASE_URL) as connection:

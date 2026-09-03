@@ -1,3 +1,3 @@
-export type InvoiceStatus = "Paid" | "Pending" | "Overdue" | "Cancelled";
+export type InvoiceStatus = "Paid" | "Partially Paid" | "Pending" | "Overdue" | "Refunded" | "Cancelled";
 export type Invoice = { id: string; number: string; patient: string; date: string; amount: number; status: InvoiceStatus; method: string };
 export type BillingInvoicePayload = { patient: string; appointment: string; services: { name: string; amount: number }[]; discount: number; tax: number; status: InvoiceStatus; method: string };

@@ -12,7 +12,7 @@ import { AppointmentForm } from "./components/appointments/AppointmentForm";
 import { BillingPage } from "./components/billing/BillingPage";
 
 type Screen = "login" | "register" | "dashboard" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
-type AuthMode = "clinic_admin" | "patient";
+type AuthMode = "clinic_admin" | "doctor" | "patient";
 type UserRole = "clinic_admin" | "doctor" | "patient";
 
 type Appointment = {
@@ -179,7 +179,7 @@ const pageMeta: Record<Exclude<Screen, "login" | "register">, { title: string; s
   profile: { title: "Profile", subtitle: "Manage your personal details and preferences." },
 };
 
-const apiUrl = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8001";
+const apiUrl = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
 
 function statusClasses(status: Appointment["status"]) {
   switch (status) {
@@ -341,6 +341,12 @@ function App() {
     return doctorList.filter((doctor) => doctor.clinicId === selectedPatient.clinicId || !doctor.clinicId || !selectedPatient.clinicId);
   }, [assignedDoctorsForCurrentPatient, currentUserRole, doctorList, selectedPatient]);
 
+  const visiblePatients = useMemo(() => {
+    if (currentUserRole !== "doctor") return patientList;
+    const doctorName = "Dr. Ananya Rao";
+    return patientList.filter((patient) => (PATIENT_DOCTOR_ASSIGNMENTS[patient.name] ?? []).includes(doctorName));
+  }, [currentUserRole, patientList]);
+
   function resetRegistrationForm() {
     setClinicName("");
     setAdminName("");
@@ -359,6 +365,20 @@ function App() {
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (authMode === "doctor") {
+      if (email.trim().toLowerCase() !== "ananya@abcdental.com" || password !== "doctor@123") {
+        setMessage("Incorrect doctor email or password.");
+        return;
+      }
+
+      setCurrentUserRole("doctor");
+      setSelectedPatientName("Aarav Sharma");
+      setClinicProfile((current) => ({ ...current, name: "ABC Dental Clinic" }));
+      setMessage("Welcome back, Dr. Ananya Rao.");
+      setScreen("dashboard");
+      return;
+    }
 
     if (authMode === "patient") {
       const otpError = validateOtpCode(otp);
@@ -744,6 +764,13 @@ function App() {
     { key: "notifications", label: "Notifications", icon: "🔔" },
     { key: "profile", label: "Profile", icon: "◉" },
   ];
+  const doctorNavItems = [
+    { key: "dashboard", label: "Dashboard", icon: "▣" },
+    { key: "patients", label: "My Patients", icon: "◎" },
+    { key: "appointments", label: "Appointments", icon: "◫" },
+    { key: "medical_records", label: "Medical Records", icon: "◌" },
+    { key: "prescriptions", label: "Prescriptions", icon: "✓" },
+  ];
 
   return (
     <div className="min-h-screen bg-[#f3f6f3] text-[#17362c]">
@@ -751,7 +778,7 @@ function App() {
         <Sidebar
           activePage={screen}
           onSelectPage={(page) => setScreen(page as Screen)}
-          navItems={isPatientView ? patientNavItems : undefined}
+          navItems={isPatientView ? patientNavItems : currentUserRole === "doctor" ? doctorNavItems : undefined}
           omitSettings={currentUserRole === "doctor"}
           brandName={clinicProfile.name}
         />
@@ -782,6 +809,16 @@ function App() {
                       {quickActions.map((action) => (
                         <button
                           key={action}
+                          type="button"
+                          onClick={() => {
+                            const destination: Record<string, Screen> = {
+                              "+ New appointment": "appointments",
+                              Patients: "patients",
+                              Doctors: "doctors",
+                              Schedule: "availability",
+                            };
+                            setScreen(destination[action]);
+                          }}
                           className={
                             action.startsWith("+")
                               ? "rounded-xl bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white"
@@ -804,6 +841,21 @@ function App() {
                   <p className="mt-3 rounded-xl border border-[#f3b3b3] bg-[#fbe9ea] px-4 py-3 text-sm text-[#7a2222]">
                     {assignmentError}
                   </p>
+                )}
+
+                {currentUserRole === "doctor" && (
+                  <section className="mt-8 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                      <div><p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Doctor workspace</p><h3 className="mt-2 text-2xl font-bold text-[#17362c]">My Patients</h3><p className="mt-1 text-sm text-[#587068]">Patients assigned to Dr. Ananya Rao</p></div>
+                      <button type="button" onClick={() => setScreen("patients")} className="text-sm font-semibold text-[#19b3a2]">View all patients</button>
+                    </div>
+                    <div className="mt-5 grid gap-3 md:grid-cols-2">
+                      {visiblePatients.map((patient) => {
+                        const visit = schedule.find((item) => item.patient === patient.name);
+                        return <button key={patient.name} type="button" onClick={() => { setSelectedPatientName(patient.name); setScreen("patients"); }} className="rounded-2xl border border-[#dfe9e1] bg-white p-4 text-left hover:border-[#19b3a2]"><p className="font-semibold text-[#17362c]">{patient.name}</p><p className="mt-1 text-sm text-[#587068]">{visit ? `Next appointment · ${visit.time}` : `Last visit · ${patient.lastVisit}`}</p></button>;
+                      })}
+                    </div>
+                  </section>
                 )}
 
                 <div className="mt-8 grid gap-4 md:grid-cols-4">
@@ -1114,7 +1166,7 @@ function App() {
 
                 <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
-                    {patientList.map((patient) => (
+                    {visiblePatients.map((patient) => (
                       <button
                         key={patient.name + patient.email}
                         type="button"
@@ -1142,8 +1194,9 @@ function App() {
 
                   <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
                     {(() => {
-                      const patient = patientList.find((entry) => entry.name === selectedPatientName) ?? patientList[0];
+                      const patient = visiblePatients.find((entry) => entry.name === selectedPatientName) ?? visiblePatients[0];
                       const upcomingVisit = schedule.find((item) => item.patient === patient.name);
+                      const assignedDoctor = assignedDoctorsForCurrentPatient[0] ?? doctorList[0];
 
                       return (
                         <>
@@ -1154,7 +1207,7 @@ function App() {
                             </div>
                             <div>
                               <h3 className="text-2xl font-bold tracking-[-0.04em] text-[#17362c]">{patient.name}</h3>
-                              <p className="text-sm text-[#587068]">Assigned to {(eligibleDoctors[0]?.name ?? newPatientForm.doctor) || "Dr. Ananya Rao"}</p>
+                              <p className="text-sm text-[#587068]">Assigned to {assignedDoctor?.name ?? "No doctor assigned"}</p>
                             </div>
                           </div>
 
@@ -1176,6 +1229,27 @@ function App() {
                             <span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${upcomingVisit ? statusClasses(upcomingVisit.status) : "bg-[#eaf5ef] text-[#0d523e]"}`}>
                               {upcomingVisit ? upcomingVisit.status : "Confirmed"}
                             </span>
+                          </div>
+
+                          <div className="mt-6 grid gap-4 md:grid-cols-2">
+                            <div className="rounded-2xl border border-[#dfe9e1] bg-white p-4">
+                              <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Assigned doctor</p>
+                              <p className="mt-2 text-lg font-semibold text-[#17362c]">{assignedDoctor?.name ?? "No doctor assigned"}</p>
+                              <p className="mt-1 text-sm text-[#587068]">{assignedDoctor?.specialization ?? "General Physician"}</p>
+                              <p className="mt-1 text-sm text-[#587068]">{assignedDoctor?.email ?? "No doctor account linked"}</p>
+                              <span className="mt-3 inline-flex rounded-full bg-[#eaf5ef] px-2.5 py-1 text-xs font-semibold text-[#0d523e]">● Active</span>
+                              <div className="mt-4 flex gap-3"><button type="button" onClick={() => setScreen("doctors")} className="text-sm font-semibold text-[#19b3a2]">View doctor</button><button type="button" onClick={() => setMessage("Doctor assignment changes require clinic administrator approval.")} className="text-sm font-semibold text-[#19b3a2]">Change</button></div>
+                            </div>
+                            <div className="rounded-2xl border border-[#dfe9e1] bg-white p-4">
+                              <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Doctor access</p>
+                              <p className="mt-2 text-lg font-semibold text-[#17362c]">● Active</p>
+                              <p className="mt-1 text-sm leading-6 text-[#587068]">{assignedDoctor?.name ?? "No doctor"} can access this patient&apos;s medical records and appointments.</p>
+                              <p className="mt-3 text-xs text-[#587068]">Last accessed: Today, 10:32 AM</p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid gap-4 md:grid-cols-3">
+                            {["Medical records", "Appointments", "Billing summary"].map((label) => <div key={label} className="rounded-2xl bg-[#f5faf7] p-4"><p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">{label}</p><p className="mt-2 text-sm font-semibold text-[#17362c]">Available to assigned doctor</p></div>)}
                           </div>
                         </>
                       );
