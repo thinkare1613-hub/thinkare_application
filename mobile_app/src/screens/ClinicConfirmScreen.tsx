@@ -1,0 +1,6 @@
+import { StyleSheet, Text, View } from "react-native";
+import { ClinicCard } from "../components/ClinicCard";
+import { PrimaryButton } from "../components/PrimaryButton";
+import type { Clinic } from "../services/clinic";
+export function ClinicConfirmScreen({ clinic, onContinue, onBack }: { clinic: Clinic; onContinue: () => void; onBack: () => void }) { return <View style={styles.page}><Text style={styles.kicker}>CLINIC FOUND</Text><Text style={styles.title}>Is this your clinic?</Text><Text style={styles.copy}>Confirm before connecting your health records.</Text><View style={styles.card}><ClinicCard clinic={clinic} /></View><PrimaryButton label={`Continue to ${clinic.name}`} onPress={onContinue} /><Text onPress={onBack} style={styles.back}>Scan again</Text></View>; }
+const styles = StyleSheet.create({ page: { flex: 1, padding: 28, paddingTop: 70, backgroundColor: "#f4faf7" }, kicker: { color: "#0d8f7c", fontWeight: "800", letterSpacing: 1.5 }, title: { color: "#17362c", fontSize: 32, fontWeight: "800", marginTop: 14 }, copy: { color: "#587068", fontSize: 17, marginTop: 12 }, card: { marginVertical: 32 }, back: { textAlign: "center", color: "#0d8f7c", fontWeight: "700", marginTop: 22 } });

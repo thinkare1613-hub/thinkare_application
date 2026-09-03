@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Thinkare Patient",
+    "slug": "thinkare-patient",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "thinkare",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "plugins": [
+      "expo-status-bar"
+    ]
+  }
+}
