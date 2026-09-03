@@ -1,0 +1,2 @@
+type EmptyMedicalRecordsProps = { onUpload: () => void };
+export function EmptyMedicalRecords({ onUpload }: EmptyMedicalRecordsProps) { return <div className="rounded-xl border border-dashed border-[#b6cec5] bg-white p-10 text-center"><h3 className="text-xl font-bold text-[#17362c]">No records found</h3><p className="mt-2 text-sm text-[#587068]">Try a different search or add a medical record.</p><button type="button" onClick={onUpload} className="mt-5 rounded-lg bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white">Upload record</button></div>; }

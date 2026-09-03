@@ -14,7 +14,6 @@ const clinicNavItems: NavItem[] = [
   { key: "clinics", label: "Clinics", icon: "▤" },
   { key: "availability", label: "Availability", icon: "⏱" },
   { key: "billing", label: "Billing", icon: "◍" },
-  { key: "settings", label: "Settings", icon: "⚙" },
 ];
 
 type SidebarProps = {

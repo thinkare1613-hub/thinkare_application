@@ -1,11 +1,14 @@
 import os
+import re
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import jwt
 import psycopg
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
@@ -18,6 +21,8 @@ JWT_SECRET = os.getenv("JWT_SECRET", "change-this-development-secret")
 JWT_ALGORITHM = "HS256"
 password_hash = PasswordHash.recommended()
 bearer_scheme = HTTPBearer()
+UPLOAD_DIRECTORY = Path(os.getenv("MEDICAL_RECORD_UPLOAD_DIRECTORY", "uploads/medical-records"))
+ALLOWED_RECORD_CATEGORIES = {"Lab Reports", "Prescriptions", "Visit Summaries", "Diagnoses", "Imaging", "Other"}
 
 DEMO_CLINICS: dict[str, dict[str, str | bool]] = {
     "clinic-demo-1": {
@@ -62,7 +67,6 @@ if additional_origins:
         value = origin.strip()
         if value:
             allowed_origins.add(value)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(allowed_origins),
@@ -111,6 +115,116 @@ class SlotRequest(BaseModel):
 class BookingRequest(BaseModel):
     slot_id: UUID
     reason: str | None = None
+
+    '''
+    @app.get("/api/medical-records")
+    def list_medical_records(
+        patient_id: UUID | None = None,
+        category: str | None = None,
+        search: str | None = None,
+        user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
+    ) -> list[dict[str, object]]:
+        if category and category not in ALLOWED_RECORD_CATEGORIES:
+            raise HTTPException(status_code=400, detail="Unsupported medical record category")
+
+        with psycopg.connect(DATABASE_URL) as connection:
+            resolved_patient_id = patient_id
+            if user["role"] == "PATIENT":
+                patient = connection.execute("SELECT id FROM patients WHERE user_id = %s AND clinic_id = %s", (user["id"], user["clinic_id"])).fetchone()
+                if not patient:
+                    return []
+                resolved_patient_id = patient[0]
+
+            query = """
+                SELECT id, clinic_id, patient_id, doctor_id, category, title, summary, diagnosis,
+                       prescription_count, record_date, attachment_name, created_at
+                FROM medical_records WHERE clinic_id = %s
+            """
+            params: list[object] = [user["clinic_id"]]
+            if resolved_patient_id:
+                query += " AND patient_id = %s"
+                params.append(resolved_patient_id)
+            if category:
+                query += " AND category = %s"
+                params.append(category)
+            if search:
+                query += " AND (title ILIKE %s OR summary ILIKE %s OR diagnosis ILIKE %s)"
+                term = f"%{search.strip()}%"
+                params.extend([term, term, term])
+            query += " ORDER BY record_date DESC, created_at DESC"
+            rows = connection.execute(query, tuple(params)).fetchall()
+
+        return [{"id": str(row[0]), "clinic_id": str(row[1]), "patient_id": str(row[2]), "doctor_id": str(row[3]) if row[3] else None, "category": row[4], "title": row[5], "summary": row[6], "diagnosis": row[7], "prescription_count": row[8], "record_date": str(row[9]), "attachment_name": row[10], "created_at": row[11].isoformat()} for row in rows]
+
+
+    @app.get("/api/medical-records/{record_id}")
+    def get_medical_record(
+        record_id: UUID,
+        user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
+    ) -> dict[str, object]:
+        with psycopg.connect(DATABASE_URL) as connection:
+            record = connection.execute("""SELECT id, clinic_id, patient_id, doctor_id, category, title, summary, diagnosis, prescription_count, record_date, attachment_name, attachment_path, created_at FROM medical_records WHERE id = %s""", (record_id,)).fetchone()
+            if not record:
+                raise HTTPException(status_code=404, detail="Medical record not found")
+            ensure_record_access(record, user, connection)
+        return {"id": str(record[0]), "clinic_id": str(record[1]), "patient_id": str(record[2]), "doctor_id": str(record[3]) if record[3] else None, "category": record[4], "title": record[5], "summary": record[6], "diagnosis": record[7], "prescription_count": record[8], "record_date": str(record[9]), "attachment_name": record[10], "has_attachment": bool(record[11]), "created_at": record[12].isoformat()}
+
+
+    @app.post("/api/patients/{patient_id}/medical-records", status_code=status.HTTP_201_CREATED)
+    def upload_medical_record(
+        patient_id: UUID,
+        category: str = Form(...),
+        title: str = Form(...),
+        record_date: date = Form(...),
+        summary: str | None = Form(None),
+        diagnosis: str | None = Form(None),
+        prescription_count: int | None = Form(None),
+        file: UploadFile | None = File(None),
+        user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR")),
+    ) -> dict[str, object]:
+        if category not in ALLOWED_RECORD_CATEGORIES:
+            raise HTTPException(status_code=400, detail="Unsupported medical record category")
+        if not title.strip():
+            raise HTTPException(status_code=400, detail="Record title is required")
+
+        with psycopg.connect(DATABASE_URL) as connection:
+            patient = connection.execute("SELECT clinic_id FROM patients WHERE id = %s", (patient_id,)).fetchone()
+            if not patient:
+                raise HTTPException(status_code=404, detail="Patient not found")
+            ensure_same_clinic(user, patient[0], field_name="patient.clinic_id")
+
+            attachment_name = None
+            attachment_path = None
+            if file and file.filename:
+                suffix = Path(file.filename).suffix.lower()
+                if suffix not in {".pdf", ".png", ".jpg", ".jpeg"}:
+                    raise HTTPException(status_code=400, detail="Only PDF, PNG, and JPG files are supported")
+                UPLOAD_DIRECTORY.mkdir(parents=True, exist_ok=True)
+                attachment_name = Path(file.filename).name
+                saved_path = UPLOAD_DIRECTORY / f"{uuid4().hex}{suffix}"
+                saved_path.write_bytes(file.file.read())
+                attachment_path = str(saved_path)
+
+            record = connection.execute("""INSERT INTO medical_records (clinic_id, patient_id, category, title, summary, diagnosis, prescription_count, record_date, attachment_name, attachment_path) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""", (user["clinic_id"], patient_id, category, title.strip(), summary, diagnosis, prescription_count, record_date, attachment_name, attachment_path)).fetchone()
+            connection.commit()
+        return {"id": str(record[0]), "patient_id": str(patient_id), "category": category, "title": title.strip(), "attachment_name": attachment_name}
+
+
+    @app.get("/api/medical-records/{record_id}/download")
+    def download_medical_record(
+        record_id: UUID,
+        user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
+    ) -> FileResponse:
+        with psycopg.connect(DATABASE_URL) as connection:
+            record = connection.execute("SELECT id, clinic_id, patient_id, attachment_name, attachment_path FROM medical_records WHERE id = %s", (record_id,)).fetchone()
+            if not record:
+                raise HTTPException(status_code=404, detail="Medical record not found")
+            ensure_record_access((record[0], record[1], record[2]), user, connection)
+        if not record[4] or not Path(record[4]).is_file():
+            raise HTTPException(status_code=404, detail="Record attachment is unavailable")
+        return FileResponse(path=record[4], filename=record[3] or "medical-record")
+
+    '''
     patient_notes: str | None = None
 
 
@@ -118,6 +232,16 @@ class PaymentRequest(BaseModel):
     appointment_id: UUID
     amount: Decimal
     transaction_reference: str | None = None
+
+
+class InvoiceCreateRequest(BaseModel):
+    patient_id: UUID | None = None
+    appointment_id: UUID | None = None
+    subtotal: Decimal
+    discount: Decimal = Decimal("0")
+    tax: Decimal = Decimal("0")
+    status: str = "UNPAID"
+    payment_method: str = "CASH"
 
 
 def validate_same_clinic_patient_doctor(patient_id: UUID, doctor_id: UUID, connection) -> None:
@@ -196,6 +320,95 @@ def ensure_same_clinic(user: dict[str, str], clinic_id: str | UUID | None, *, fi
         raise HTTPException(status_code=403, detail="This resource belongs to another clinic")
 
 
+def clinic_slug(clinic_name: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", clinic_name.lower()).strip("-")
+    return f"{normalized[:90] or 'clinic'}-{uuid4().hex[:8]}"
+
+
+def ensure_record_access(record: tuple[object, ...], user: dict[str, str], connection) -> None:
+    ensure_same_clinic(user, record[1], field_name="record.clinic_id")
+    if user["role"] == "PATIENT":
+        patient = connection.execute("SELECT id FROM patients WHERE user_id = %s", (user["id"],)).fetchone()
+        if not patient or str(patient[0]) != str(record[2]):
+            raise HTTPException(status_code=403, detail="You can only access your own medical records")
+
+
+@app.get("/api/medical-records")
+def list_medical_records(
+    patient_id: UUID | None = None,
+    category: str | None = None,
+    search: str | None = None,
+    user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
+) -> list[dict[str, object]]:
+    if category and category not in ALLOWED_RECORD_CATEGORIES:
+        raise HTTPException(status_code=400, detail="Unsupported medical record category")
+    if user["clinic_id"] in DEMO_CLINICS:
+        return []
+
+    with psycopg.connect(DATABASE_URL) as connection:
+        if user["role"] == "PATIENT":
+            patient = connection.execute("SELECT id FROM patients WHERE user_id = %s AND clinic_id = %s", (user["id"], user["clinic_id"])).fetchone()
+            if not patient:
+                return []
+            patient_id = patient[0]
+        query = "SELECT id, clinic_id, patient_id, category, title, summary, diagnosis, prescription_count, record_date, attachment_name FROM medical_records WHERE clinic_id = %s"
+        params: list[object] = [user["clinic_id"]]
+        if patient_id:
+            query += " AND patient_id = %s"; params.append(patient_id)
+        if category:
+            query += " AND category = %s"; params.append(category)
+        if search:
+            term = f"%{search.strip()}%"; query += " AND (title ILIKE %s OR summary ILIKE %s)"; params.extend([term, term])
+        rows = connection.execute(query + " ORDER BY record_date DESC", tuple(params)).fetchall()
+    return [{"id": str(row[0]), "clinic_id": str(row[1]), "patient_id": str(row[2]), "category": row[3], "title": row[4], "summary": row[5], "diagnosis": row[6], "prescription_count": row[7], "record_date": str(row[8]), "attachment_name": row[9]} for row in rows]
+
+
+@app.get("/api/medical-records/{record_id}")
+def get_medical_record(record_id: UUID, user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT"))) -> dict[str, object]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        record = connection.execute("SELECT id, clinic_id, patient_id, category, title, summary, diagnosis, prescription_count, record_date, attachment_name, attachment_path FROM medical_records WHERE id = %s", (record_id,)).fetchone()
+        if not record:
+            raise HTTPException(status_code=404, detail="Medical record not found")
+        ensure_record_access(record, user, connection)
+    return {"id": str(record[0]), "clinic_id": str(record[1]), "patient_id": str(record[2]), "category": record[3], "title": record[4], "summary": record[5], "diagnosis": record[6], "prescription_count": record[7], "record_date": str(record[8]), "attachment_name": record[9], "has_attachment": bool(record[10])}
+
+
+@app.post("/api/patients/{patient_id}/medical-records", status_code=status.HTTP_201_CREATED)
+def upload_medical_record(patient_id: UUID, category: str = Form(...), title: str = Form(...), record_date: date = Form(...), summary: str | None = Form(None), diagnosis: str | None = Form(None), prescription_count: int | None = Form(None), file: UploadFile | None = File(None), user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR"))) -> dict[str, object]:
+    if category not in ALLOWED_RECORD_CATEGORIES or not title.strip():
+        raise HTTPException(status_code=400, detail="A supported category and record title are required")
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient = connection.execute("SELECT clinic_id FROM patients WHERE id = %s", (patient_id,)).fetchone()
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        ensure_same_clinic(user, patient[0], field_name="patient.clinic_id")
+        attachment_name = attachment_path = None
+        if file and file.filename:
+            suffix = Path(file.filename).suffix.lower()
+            if suffix not in {".pdf", ".png", ".jpg", ".jpeg"}:
+                raise HTTPException(status_code=400, detail="Only PDF, PNG, and JPG files are supported")
+            UPLOAD_DIRECTORY.mkdir(parents=True, exist_ok=True)
+            attachment_name = Path(file.filename).name
+            saved_file = UPLOAD_DIRECTORY / f"{uuid4().hex}{suffix}"
+            saved_file.write_bytes(file.file.read())
+            attachment_path = str(saved_file)
+        record = connection.execute("INSERT INTO medical_records (clinic_id, patient_id, category, title, summary, diagnosis, prescription_count, record_date, attachment_name, attachment_path) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id", (user["clinic_id"], patient_id, category, title.strip(), summary, diagnosis, prescription_count, record_date, attachment_name, attachment_path)).fetchone()
+        connection.commit()
+    return {"id": str(record[0]), "patient_id": str(patient_id), "title": title.strip(), "attachment_name": attachment_name}
+
+
+@app.get("/api/medical-records/{record_id}/download")
+def download_medical_record(record_id: UUID, user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT"))) -> FileResponse:
+    with psycopg.connect(DATABASE_URL) as connection:
+        record = connection.execute("SELECT id, clinic_id, patient_id, attachment_name, attachment_path FROM medical_records WHERE id = %s", (record_id,)).fetchone()
+        if not record:
+            raise HTTPException(status_code=404, detail="Medical record not found")
+        ensure_record_access(record, user, connection)
+    if not record[4] or not Path(record[4]).is_file():
+        raise HTTPException(status_code=404, detail="Record attachment is unavailable")
+    return FileResponse(record[4], filename=record[3] or "medical-record")
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     try:
@@ -204,6 +417,18 @@ def health() -> dict[str, str]:
         return {"status": "ok", "database": database}
     except psycopg.Error as error:
         raise HTTPException(status_code=503, detail="Database connection failed") from error
+
+
+@app.get("/api/public/clinics/{public_slug}")
+def public_clinic(public_slug: str) -> dict[str, str]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        clinic = connection.execute(
+            "SELECT name FROM clinics WHERE public_slug = %s AND status = 'APPROVED'",
+            (public_slug,),
+        ).fetchone()
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic booking page not found")
+    return {"name": clinic[0], "logo_url": "", "address": ""}
 
 
 @app.post("/api/auth/login")
@@ -215,7 +440,7 @@ def login(credentials: LoginRequest) -> dict[str, object]:
                 SELECT users.id, users.password_hash, roles.name, clinics.id, clinics.name
                 FROM users
                 JOIN roles ON roles.id = users.role_id
-                LEFT JOIN clinic_admins ON clinic_admins.email = users.email
+                LEFT JOIN clinic_admins ON clinic_admins.user_id = users.id
                 LEFT JOIN clinics ON clinics.id = clinic_admins.clinic_id
                 WHERE users.email = %s AND users.is_active = TRUE
                 """,
@@ -259,8 +484,9 @@ def login(credentials: LoginRequest) -> dict[str, object]:
 
 @app.post("/api/auth/register-clinic", status_code=status.HTTP_201_CREATED)
 def register_clinic(account: ClinicRegisterRequest) -> dict[str, object]:
-    clinic_id = f"clinic-{uuid4().hex[:8]}"
-    user_id = f"user-{uuid4().hex[:8]}"
+    clinic_id = str(uuid4())
+    user_id = str(uuid4())
+    public_slug = clinic_slug(account.clinic_name)
     hashed_password = password_hash.hash(account.password)
 
     try:
@@ -271,11 +497,11 @@ def register_clinic(account: ClinicRegisterRequest) -> dict[str, object]:
 
             clinic_record = connection.execute(
                 """
-                INSERT INTO clinics (id, name, email, phone, address, logo_url, status)
-                VALUES (%s, %s, %s, %s, %s, %s, 'active')
+                INSERT INTO clinics (id, name, email, phone, address_line1, status, public_slug)
+                VALUES (%s, %s, %s, %s, %s, 'APPROVED', %s)
                 RETURNING id
                 """,
-                (clinic_id, account.clinic_name, str(account.email), account.phone or "", "", "",),
+                (clinic_id, account.clinic_name, str(account.email), account.phone or "", "", public_slug),
             ).fetchone()
 
             connection.execute(
@@ -288,11 +514,12 @@ def register_clinic(account: ClinicRegisterRequest) -> dict[str, object]:
 
             connection.execute(
                 """
-                INSERT INTO clinic_admins (clinic_id, name, email, password_hash, is_verified)
-                VALUES (%s, %s, %s, %s, TRUE)
+                INSERT INTO clinic_admins (clinic_id, user_id)
+                VALUES (%s, %s)
                 """,
-                (clinic_record[0], account.admin_name, str(account.email), hashed_password),
+                (clinic_record[0], user_id),
             )
+            connection.execute("UPDATE clinics SET created_by = %s WHERE id = %s", (user_id, clinic_record[0]))
             connection.commit()
 
             return {
@@ -301,6 +528,7 @@ def register_clinic(account: ClinicRegisterRequest) -> dict[str, object]:
                 "admin_name": account.admin_name,
                 "email": str(account.email),
                 "status": "active",
+                "public_slug": public_slug,
             }
     except psycopg.errors.UniqueViolation:
         raise HTTPException(status_code=409, detail="A clinic or admin account already exists for this email")
@@ -329,6 +557,7 @@ def register_clinic(account: ClinicRegisterRequest) -> dict[str, object]:
         "admin_name": account.admin_name,
         "email": str(account.email),
         "status": "active",
+        "public_slug": public_slug,
     }
 
 
@@ -783,6 +1012,69 @@ def create_payment(
         except psycopg.errors.UniqueViolation as error:
             raise HTTPException(status_code=409, detail="A payment already exists for this appointment") from error
     return {"id": str(record[0]), "status": record[1]}
+
+
+@app.get("/api/invoices")
+def list_invoices(
+    user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
+) -> list[dict[str, object]]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        query = """SELECT invoices.id, invoices.invoice_number, COALESCE(patients.name, 'Walk-in patient'), invoices.issue_date, invoices.total, invoices.status, invoices.payment_method FROM invoices LEFT JOIN patients ON patients.id = invoices.patient_id WHERE invoices.clinic_id = %s"""
+        params: list[object] = [user["clinic_id"]]
+        if user["role"] == "PATIENT":
+            patient = connection.execute("SELECT id FROM patients WHERE user_id = %s AND clinic_id = %s", (user["id"], user["clinic_id"])).fetchone()
+            if not patient:
+                return []
+            query += " AND invoices.patient_id = %s"; params.append(patient[0])
+        rows = connection.execute(query + " ORDER BY invoices.issue_date DESC", tuple(params)).fetchall()
+    return [{"id": str(row[0]), "invoice_number": row[1], "patient": row[2], "issue_date": str(row[3]), "total": row[4], "status": row[5], "payment_method": row[6]} for row in rows]
+
+
+@app.post("/api/invoices", status_code=status.HTTP_201_CREATED)
+def create_invoice(
+    invoice: InvoiceCreateRequest,
+    user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN")),
+) -> dict[str, object]:
+    if invoice.status not in {"UNPAID", "PARTIALLY_PAID", "PAID", "OVERDUE", "CANCELLED"}:
+        raise HTTPException(status_code=400, detail="Unsupported invoice status")
+    if invoice.subtotal < 0 or invoice.discount < 0 or invoice.tax < 0:
+        raise HTTPException(status_code=400, detail="Invoice amounts cannot be negative")
+    total = invoice.subtotal - invoice.discount + invoice.tax
+    if total < 0:
+        raise HTTPException(status_code=400, detail="Invoice total cannot be negative")
+    with psycopg.connect(DATABASE_URL) as connection:
+        if invoice.patient_id:
+            patient = connection.execute("SELECT clinic_id FROM patients WHERE id = %s", (invoice.patient_id,)).fetchone()
+            if not patient:
+                raise HTTPException(status_code=404, detail="Patient not found")
+            ensure_same_clinic(user, patient[0], field_name="patient.clinic_id")
+        number = f"INV-{uuid4().hex[:8].upper()}"
+        record = connection.execute("""INSERT INTO invoices (clinic_id, patient_id, appointment_id, invoice_number, subtotal, discount, tax, total, status, payment_method) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""", (user["clinic_id"], invoice.patient_id, invoice.appointment_id, number, invoice.subtotal, invoice.discount, invoice.tax, total, invoice.status, invoice.payment_method)).fetchone()
+        connection.commit()
+    return {"id": str(record[0]), "invoice_number": number, "total": total, "status": invoice.status}
+
+
+@app.put("/api/invoices/{invoice_id}")
+def update_invoice(invoice_id: UUID, invoice: InvoiceCreateRequest, user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN"))) -> dict[str, object]:
+    if invoice.status not in {"UNPAID", "PARTIALLY_PAID", "PAID", "OVERDUE", "CANCELLED"}:
+        raise HTTPException(status_code=400, detail="Unsupported invoice status")
+    total = invoice.subtotal - invoice.discount + invoice.tax
+    with psycopg.connect(DATABASE_URL) as connection:
+        record = connection.execute("UPDATE invoices SET patient_id = %s, appointment_id = %s, subtotal = %s, discount = %s, tax = %s, total = %s, status = %s, payment_method = %s WHERE id = %s AND clinic_id = %s RETURNING id, invoice_number", (invoice.patient_id, invoice.appointment_id, invoice.subtotal, invoice.discount, invoice.tax, total, invoice.status, invoice.payment_method, invoice_id, user["clinic_id"])).fetchone()
+        if not record:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        connection.commit()
+    return {"id": str(record[0]), "invoice_number": record[1], "total": total, "status": invoice.status}
+
+
+@app.delete("/api/invoices/{invoice_id}")
+def delete_invoice(invoice_id: UUID, user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN"))) -> dict[str, str]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        record = connection.execute("DELETE FROM invoices WHERE id = %s AND clinic_id = %s RETURNING id", (invoice_id, user["clinic_id"])).fetchone()
+        if not record:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        connection.commit()
+    return {"message": "Invoice deleted successfully"}
 
 
 @app.get("/api/notifications")

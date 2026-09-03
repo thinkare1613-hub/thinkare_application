@@ -1,0 +1,4 @@
+export function BillingSummaryCards() {
+  const cards = [{ label: "Monthly revenue", value: "₹42,560", detail: "↑ 12.4% vs last month", foot: "184 invoices", className: "bg-[#19b3a2] text-white" }, { label: "Outstanding", value: "₹8,240", detail: "27 unpaid invoices", foot: "₹2,180 overdue", className: "bg-[#fff7e9] text-[#8a5e00]" }, { label: "Collected", value: "₹34,320", detail: "81% collection rate", foot: "↑ 8.2% this month", className: "bg-[#eaf5ef] text-[#0d523e]" }];
+  return <div className="grid gap-4 md:grid-cols-3">{cards.map((card) => <div key={card.label} className={`rounded-xl p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)] ${card.className}`}><p className="text-sm font-semibold opacity-80">{card.label}</p><p className="mt-3 text-3xl font-bold">{card.value}</p><p className="mt-3 text-sm font-semibold">{card.detail}</p><p className="mt-1 text-xs opacity-75">{card.foot}</p></div>)}</div>;
+}
