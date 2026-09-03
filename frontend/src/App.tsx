@@ -9,6 +9,7 @@ import { LoginPage } from "./pages/auth/LoginPage";
 import { CreateClinicAccountPage } from "./pages/auth/CreateClinicAccountPage";
 import { MedicalRecordsPage } from "./components/medical-records/MedicalRecordsPage";
 import { AppointmentForm } from "./components/appointments/AppointmentForm";
+import { BillingPage } from "./components/billing/BillingPage";
 
 type Screen = "login" | "register" | "dashboard" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
 type AuthMode = "clinic_admin" | "patient";
@@ -1447,20 +1448,7 @@ function App() {
             )}
 
             {screen === "billing" && (
-              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
-                <div className="grid gap-5 md:grid-cols-3">
-                  {[
-                    { label: "Monthly revenue", value: "$42,560", tone: "bg-[#19b3a2] text-white" },
-                    { label: "Outstanding", value: "$8,240", tone: "bg-[#fef3d2] text-[#8a5e00]" },
-                    { label: "Collected", value: "$34,320", tone: "bg-[#eaf5ef] text-[#0d523e]" },
-                  ].map((item) => (
-                    <div key={item.label} className={`rounded-3xl p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)] ${item.tone}`}>
-                      <p className="text-sm font-medium opacity-80">{item.label}</p>
-                      <p className="mt-3 text-3xl font-bold">{item.value}</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
+              <BillingPage />
             )}
 
           </main>

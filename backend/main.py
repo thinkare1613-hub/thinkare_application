@@ -234,6 +234,16 @@ class PaymentRequest(BaseModel):
     transaction_reference: str | None = None
 
 
+class InvoiceCreateRequest(BaseModel):
+    patient_id: UUID | None = None
+    appointment_id: UUID | None = None
+    subtotal: Decimal
+    discount: Decimal = Decimal("0")
+    tax: Decimal = Decimal("0")
+    status: str = "UNPAID"
+    payment_method: str = "CASH"
+
+
 def validate_same_clinic_patient_doctor(patient_id: UUID, doctor_id: UUID, connection) -> None:
     patient = connection.execute(
         "SELECT clinic_id FROM patients WHERE id = %s",
@@ -1002,6 +1012,46 @@ def create_payment(
         except psycopg.errors.UniqueViolation as error:
             raise HTTPException(status_code=409, detail="A payment already exists for this appointment") from error
     return {"id": str(record[0]), "status": record[1]}
+
+
+@app.get("/api/invoices")
+def list_invoices(
+    user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
+) -> list[dict[str, object]]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        query = """SELECT invoices.id, invoices.invoice_number, COALESCE(patients.name, 'Walk-in patient'), invoices.issue_date, invoices.total, invoices.status, invoices.payment_method FROM invoices LEFT JOIN patients ON patients.id = invoices.patient_id WHERE invoices.clinic_id = %s"""
+        params: list[object] = [user["clinic_id"]]
+        if user["role"] == "PATIENT":
+            patient = connection.execute("SELECT id FROM patients WHERE user_id = %s AND clinic_id = %s", (user["id"], user["clinic_id"])).fetchone()
+            if not patient:
+                return []
+            query += " AND invoices.patient_id = %s"; params.append(patient[0])
+        rows = connection.execute(query + " ORDER BY invoices.issue_date DESC", tuple(params)).fetchall()
+    return [{"id": str(row[0]), "invoice_number": row[1], "patient": row[2], "issue_date": str(row[3]), "total": row[4], "status": row[5], "payment_method": row[6]} for row in rows]
+
+
+@app.post("/api/invoices", status_code=status.HTTP_201_CREATED)
+def create_invoice(
+    invoice: InvoiceCreateRequest,
+    user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN")),
+) -> dict[str, object]:
+    if invoice.status not in {"UNPAID", "PARTIALLY_PAID", "PAID", "OVERDUE", "CANCELLED"}:
+        raise HTTPException(status_code=400, detail="Unsupported invoice status")
+    if invoice.subtotal < 0 or invoice.discount < 0 or invoice.tax < 0:
+        raise HTTPException(status_code=400, detail="Invoice amounts cannot be negative")
+    total = invoice.subtotal - invoice.discount + invoice.tax
+    if total < 0:
+        raise HTTPException(status_code=400, detail="Invoice total cannot be negative")
+    with psycopg.connect(DATABASE_URL) as connection:
+        if invoice.patient_id:
+            patient = connection.execute("SELECT clinic_id FROM patients WHERE id = %s", (invoice.patient_id,)).fetchone()
+            if not patient:
+                raise HTTPException(status_code=404, detail="Patient not found")
+            ensure_same_clinic(user, patient[0], field_name="patient.clinic_id")
+        number = f"INV-{uuid4().hex[:8].upper()}"
+        record = connection.execute("""INSERT INTO invoices (clinic_id, patient_id, appointment_id, invoice_number, subtotal, discount, tax, total, status, payment_method) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""", (user["clinic_id"], invoice.patient_id, invoice.appointment_id, number, invoice.subtotal, invoice.discount, invoice.tax, total, invoice.status, invoice.payment_method)).fetchone()
+        connection.commit()
+    return {"id": str(record[0]), "invoice_number": number, "total": total, "status": invoice.status}
 
 
 @app.get("/api/notifications")
