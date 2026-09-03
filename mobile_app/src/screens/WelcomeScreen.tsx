@@ -1,0 +1,5 @@
+import { StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { PrimaryButton } from "../components/PrimaryButton";
+export function WelcomeScreen({ onStart }: { onStart: () => void }) { return <SafeAreaView style={styles.page} edges={["top", "bottom"]}><View><Text style={styles.mark}>THINKARE</Text><Text style={styles.title}>Care, made clear.</Text><Text style={styles.copy}>Connect with your clinic, appointments, records, and care team in one calm place.</Text></View><View style={styles.buttonWrap}><PrimaryButton label="Connect with your clinic" onPress={onStart} /></View></SafeAreaView>; }
+const styles = StyleSheet.create({ page: { flex: 1, justifyContent: "space-between", paddingHorizontal: 28, paddingTop: 50, paddingBottom: 20, backgroundColor: "#f4faf7" }, buttonWrap: { marginBottom: 12 }, mark: { color: "#0d8f7c", fontSize: 14, fontWeight: "800", letterSpacing: 2 }, title: { color: "#17362c", fontSize: 44, fontWeight: "800", marginTop: 28 }, copy: { color: "#587068", fontSize: 18, lineHeight: 28, marginTop: 18 } });

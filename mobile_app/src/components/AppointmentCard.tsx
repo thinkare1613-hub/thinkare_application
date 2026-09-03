@@ -1,0 +1,3 @@
+import { StyleSheet, Text, View } from "react-native";
+export function AppointmentCard() { return <View style={styles.card}><Text style={styles.label}>NEXT APPOINTMENT</Text><Text style={styles.date}>Today · 12:00 PM</Text><Text style={styles.doctor}>Dr. Ananya Rao</Text><Text style={styles.meta}>General Consultation</Text></View>; }
+const styles = StyleSheet.create({ card: { backgroundColor: "#fff", borderRadius: 20, padding: 20, borderWidth: 1, borderColor: "#d7e6df" }, label: { color: "#0d8f7c", fontSize: 12, fontWeight: "700", letterSpacing: 1 }, date: { color: "#17362c", fontSize: 22, fontWeight: "700", marginTop: 10 }, doctor: { color: "#17362c", fontSize: 16, fontWeight: "600", marginTop: 12 }, meta: { color: "#587068", marginTop: 4 } });
