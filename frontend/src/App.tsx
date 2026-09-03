@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
@@ -7,9 +7,12 @@ import { validatePatientDoctorClinicMatch } from "./clinicValidation";
 import { validateOtpCode } from "./otpValidation";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { CreateClinicAccountPage } from "./pages/auth/CreateClinicAccountPage";
+import { MedicalRecordsPage } from "./components/medical-records/MedicalRecordsPage";
+import { AppointmentForm } from "./components/appointments/AppointmentForm";
+import { BillingPage } from "./components/billing/BillingPage";
 
 type Screen = "login" | "register" | "dashboard" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
-type AuthMode = "clinic_admin" | "patient";
+type AuthMode = "clinic_admin" | "doctor" | "patient";
 type UserRole = "clinic_admin" | "doctor" | "patient";
 
 type Appointment = {
@@ -176,7 +179,7 @@ const pageMeta: Record<Exclude<Screen, "login" | "register">, { title: string; s
   profile: { title: "Profile", subtitle: "Manage your personal details and preferences." },
 };
 
-const apiUrl = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8001";
+const apiUrl = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
 
 function statusClasses(status: Appointment["status"]) {
   switch (status) {
@@ -291,6 +294,29 @@ function App() {
     doctor: "Dr. Ananya Rao",
   });
 
+  useEffect(() => {
+    const clinicSlug = window.location.pathname.match(/^\/clinic\/([^/]+)$/)?.[1];
+    if (!clinicSlug) return;
+
+    fetch(`${apiUrl}/api/public/clinics/${encodeURIComponent(clinicSlug)}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Clinic booking page not found");
+        return response.json();
+      })
+      .then((clinic) => {
+        setClinicProfile((current) => ({
+          ...current,
+          name: clinic.name,
+          address: clinic.address,
+          logo: clinic.name.slice(0, 2).toUpperCase(),
+        }));
+        setAuthMode("patient");
+        setScreen("login");
+        setMessage(`Welcome to ${clinic.name}. Sign in with your mobile number to book an appointment.`);
+      })
+      .catch((error: Error) => setMessage(error.message));
+  }, []);
+
   const selectedPatient = patientList.find((entry) => entry.name === selectedPatientName) ?? patientList[0];
   const assignedDoctorsForCurrentPatient = useMemo(() => {
     const patientName = selectedPatient?.name ?? "Bhavani Patient";
@@ -315,6 +341,12 @@ function App() {
     return doctorList.filter((doctor) => doctor.clinicId === selectedPatient.clinicId || !doctor.clinicId || !selectedPatient.clinicId);
   }, [assignedDoctorsForCurrentPatient, currentUserRole, doctorList, selectedPatient]);
 
+  const visiblePatients = useMemo(() => {
+    if (currentUserRole !== "doctor") return patientList;
+    const doctorName = "Dr. Ananya Rao";
+    return patientList.filter((patient) => (PATIENT_DOCTOR_ASSIGNMENTS[patient.name] ?? []).includes(doctorName));
+  }, [currentUserRole, patientList]);
+
   function resetRegistrationForm() {
     setClinicName("");
     setAdminName("");
@@ -333,6 +365,20 @@ function App() {
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (authMode === "doctor") {
+      if (email.trim().toLowerCase() !== "ananya@abcdental.com" || password !== "doctor@123") {
+        setMessage("Incorrect doctor email or password.");
+        return;
+      }
+
+      setCurrentUserRole("doctor");
+      setSelectedPatientName("Aarav Sharma");
+      setClinicProfile((current) => ({ ...current, name: "ABC Dental Clinic" }));
+      setMessage("Welcome back, Dr. Ananya Rao.");
+      setScreen("dashboard");
+      return;
+    }
 
     if (authMode === "patient") {
       const otpError = validateOtpCode(otp);
@@ -469,7 +515,8 @@ function App() {
         },
       }));
       setCurrentUserRole("clinic_admin");
-      setMessage(`Clinic account created for ${data.clinic_name}. Please sign in.`);
+      const bookingUrl = data.public_slug ? `${window.location.origin}/clinic/${data.public_slug}` : "";
+      setMessage(`Clinic account created for ${data.clinic_name}. Patient booking URL: ${bookingUrl}`);
       resetRegistrationForm();
       setEmail(data.email);
       setPassword("");
@@ -717,6 +764,13 @@ function App() {
     { key: "notifications", label: "Notifications", icon: "🔔" },
     { key: "profile", label: "Profile", icon: "◉" },
   ];
+  const doctorNavItems = [
+    { key: "dashboard", label: "Dashboard", icon: "▣" },
+    { key: "patients", label: "My Patients", icon: "◎" },
+    { key: "appointments", label: "Appointments", icon: "◫" },
+    { key: "medical_records", label: "Medical Records", icon: "◌" },
+    { key: "prescriptions", label: "Prescriptions", icon: "✓" },
+  ];
 
   return (
     <div className="min-h-screen bg-[#f3f6f3] text-[#17362c]">
@@ -724,7 +778,7 @@ function App() {
         <Sidebar
           activePage={screen}
           onSelectPage={(page) => setScreen(page as Screen)}
-          navItems={isPatientView ? patientNavItems : undefined}
+          navItems={isPatientView ? patientNavItems : currentUserRole === "doctor" ? doctorNavItems : undefined}
           omitSettings={currentUserRole === "doctor"}
           brandName={clinicProfile.name}
         />
@@ -755,6 +809,16 @@ function App() {
                       {quickActions.map((action) => (
                         <button
                           key={action}
+                          type="button"
+                          onClick={() => {
+                            const destination: Record<string, Screen> = {
+                              "+ New appointment": "appointments",
+                              Patients: "patients",
+                              Doctors: "doctors",
+                              Schedule: "availability",
+                            };
+                            setScreen(destination[action]);
+                          }}
                           className={
                             action.startsWith("+")
                               ? "rounded-xl bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white"
@@ -777,6 +841,21 @@ function App() {
                   <p className="mt-3 rounded-xl border border-[#f3b3b3] bg-[#fbe9ea] px-4 py-3 text-sm text-[#7a2222]">
                     {assignmentError}
                   </p>
+                )}
+
+                {currentUserRole === "doctor" && (
+                  <section className="mt-8 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                      <div><p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Doctor workspace</p><h3 className="mt-2 text-2xl font-bold text-[#17362c]">My Patients</h3><p className="mt-1 text-sm text-[#587068]">Patients assigned to Dr. Ananya Rao</p></div>
+                      <button type="button" onClick={() => setScreen("patients")} className="text-sm font-semibold text-[#19b3a2]">View all patients</button>
+                    </div>
+                    <div className="mt-5 grid gap-3 md:grid-cols-2">
+                      {visiblePatients.map((patient) => {
+                        const visit = schedule.find((item) => item.patient === patient.name);
+                        return <button key={patient.name} type="button" onClick={() => { setSelectedPatientName(patient.name); setScreen("patients"); }} className="rounded-2xl border border-[#dfe9e1] bg-white p-4 text-left hover:border-[#19b3a2]"><p className="font-semibold text-[#17362c]">{patient.name}</p><p className="mt-1 text-sm text-[#587068]">{visit ? `Next appointment · ${visit.time}` : `Last visit · ${patient.lastVisit}`}</p></button>;
+                      })}
+                    </div>
+                  </section>
                 )}
 
                 <div className="mt-8 grid gap-4 md:grid-cols-4">
@@ -934,132 +1013,20 @@ function App() {
             {screen === "appointments" && (
               <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
                 <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
-                  <form onSubmit={handleBookingSubmit} className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                  <div>
                     {assignmentError && (
                       <p className="mb-4 rounded-xl border border-[#f3b3b3] bg-[#fbe9ea] px-4 py-3 text-sm text-[#7a2222]">
                         {assignmentError}
                       </p>
                     )}
-                   <div className="mb-5 flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">
-                          Booking
-                        </p>
-                        <h3 className="mt-2 font-serif text-3xl">
-                          Create appointment
-                        </h3>
-                      </div>
-                    </div>
-
-<div className="mb-6">
-  <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">
-    Appointment booking
-  </p>
-
-  <h3 className="mt-2 font-serif text-3xl font-semibold text-[#17362c]">
-    Schedule an appointment
-  </h3>
-
-  <p className="mt-2 text-sm leading-6 text-[#587068]">
-    Select a patient, doctor, service, date, and available time slot.
-  </p>
-</div>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <label className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-4 py-3 text-[#17362c] outline-none transition focus:border-[#19b3a2] focus:ring-2 focus:ring-[#19b3a2]/10">
-                        Patient
-                        <select
-                          value={bookingForm.patient}
-                          onChange={(event) => setBookingForm({ ...bookingForm, patient: event.target.value })}
-                          className="mt-2 w-full border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                        >
-                          {patientList.map((patient) => (
-                            <option key={patient.name} value={patient.name}>{patient.name}</option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="text-sm font-semibold text-[#1f352f]">
-                        Doctor
-                        <select
-                          value={bookingForm.doctor}
-                          onChange={(event) => setBookingForm({ ...bookingForm, doctor: event.target.value })}
-                          className="mt-2 w-full border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                        >
-                          {(currentUserRole === "patient"
-                            ? assignedDoctorsForCurrentPatient
-                            : doctorList.filter((doctor) => doctor.clinicId === (PATIENT_CLINIC_MAP[bookingForm.patient] ?? CLINIC_ID)))
-                            .map((doctor) => (
-                              <option key={doctor.name} value={doctor.name}>{doctor.name}</option>
-                            ))}
-                        </select>
-                      </label>
-
-                      <label className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-4 py-3 text-[#17362c] outline-none transition focus:border-[#19b3a2] focus:ring-2 focus:ring-[#19b3a2]/10">
-                        Service
-                        <select
-                          value={bookingForm.service}
-                          onChange={(event) => setBookingForm({ ...bookingForm, service: event.target.value })}
-                          className="mt-2 w-full border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                        >
-                          <option value="Consultation">Consultation</option>
-                          <option value="Follow-up">Follow-up</option>
-                          <option value="Check-up">Check-up</option>
-                          <option value="Diagnostic">Diagnostic</option>
-                        </select>
-                      </label>
-
-                      <div className="text-sm font-semibold text-[#1f352f]">
-  <p>Available time slots</p>
-
-  <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-    {[
-      "09:00 AM",
-      "10:30 AM",
-      "12:00 PM",
-      "02:15 PM",
-      "03:30 PM",
-    ].map((time) => {
-      const isSelected = bookingForm.time === time;
-
-      return (
-        <button
-          key={time}
-          type="button"
-          onClick={() =>
-            setBookingForm({
-              ...bookingForm,
-              time,
-            })
-          }
-          className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
-            isSelected
-              ? "border-[#19b3a2] bg-[#19b3a2] text-white shadow-sm"
-              : "border-[#c7d5ca] bg-white text-[#17362c] hover:border-[#19b3a2] hover:bg-[#f0faf8]"
-          }`}
-        >
-          {isSelected && <span className="mr-1">✓</span>}
-          {time}
-        </button>
-      );
-    })}
-  </div>
-</div>
-                    </div>
-
-                    <label className="mt-2 w-full rounded-xl border border-[#c7d5ca] bg-white px-4 py-3 text-[#17362c] outline-none transition focus:border-[#19b3a2] focus:ring-2 focus:ring-[#19b3a2]/10">
-                      Preferred date
-                      <input
-                        type="date"
-                        value={bookingForm.date}
-                        onChange={(event) => setBookingForm({ ...bookingForm, date: event.target.value })}
-                        className="mt-2 w-full border border-[#c7d5ca] bg-white px-3 py-3 text-[#17362c] outline-none"
-                      />
-                    </label>
-
-                    <button className="mt-6 w-full bg-[#19b3a2] px-4 py-3 text-base font-semibold text-white hover:bg-[#149d92]">
-                      Confirm appointment
-                    </button>
-                  </form>
+                    <AppointmentForm
+                      patients={patientList.map((patient) => ({ id: patient.id ?? patient.name, name: patient.name }))}
+                      doctors={(currentUserRole === "patient" ? assignedDoctorsForCurrentPatient : doctorList.filter((doctor) => doctor.clinicId === (PATIENT_CLINIC_MAP[bookingForm.patient] ?? CLINIC_ID))).map((doctor) => ({ id: doctor.id ?? doctor.name, name: doctor.name }))}
+                      form={bookingForm}
+                      onChange={(field, value) => setBookingForm((current) => ({ ...current, [field]: value }))}
+                      onSubmit={handleBookingSubmit}
+                    />
+                  </div>
 
                   <aside className="space-y-6">
                     <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
@@ -1099,27 +1066,7 @@ function App() {
             )}
 
             {screen === "medical_records" && (
-              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
-                <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                  <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Medical records</p>
-                  <h3 className="mt-2 text-3xl font-bold tracking-[-0.05em] text-[#17362c]">Recent visit history</h3>
-                  <div className="mt-6 space-y-4">
-                    {[
-                      { title: "Consultation summary", date: "12 Aug 2026", detail: "Cardiac review and medication update." },
-                      { title: "Lab report", date: "08 Aug 2026", detail: "Routine blood work reviewed by the clinic team." },
-                      { title: "Follow-up note", date: "28 Jul 2026", detail: "Plan for continued care and monitoring." },
-                    ].map((record) => (
-                      <div key={record.title} className="rounded-2xl border border-[#dfe9e1] bg-white p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-lg font-semibold text-[#17362c]">{record.title}</p>
-                          <span className="text-xs font-bold uppercase tracking-[.12em] text-[#19b3a2]">{record.date}</span>
-                        </div>
-                        <p className="mt-2 text-sm text-[#587068]">{record.detail}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </section>
+              <MedicalRecordsPage />
             )}
 
             {screen === "prescriptions" && (
@@ -1219,7 +1166,7 @@ function App() {
 
                 <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
-                    {patientList.map((patient) => (
+                    {visiblePatients.map((patient) => (
                       <button
                         key={patient.name + patient.email}
                         type="button"
@@ -1247,8 +1194,9 @@ function App() {
 
                   <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
                     {(() => {
-                      const patient = patientList.find((entry) => entry.name === selectedPatientName) ?? patientList[0];
+                      const patient = visiblePatients.find((entry) => entry.name === selectedPatientName) ?? visiblePatients[0];
                       const upcomingVisit = schedule.find((item) => item.patient === patient.name);
+                      const assignedDoctor = assignedDoctorsForCurrentPatient[0] ?? doctorList[0];
 
                       return (
                         <>
@@ -1259,7 +1207,7 @@ function App() {
                             </div>
                             <div>
                               <h3 className="text-2xl font-bold tracking-[-0.04em] text-[#17362c]">{patient.name}</h3>
-                              <p className="text-sm text-[#587068]">Assigned to {(eligibleDoctors[0]?.name ?? newPatientForm.doctor) || "Dr. Ananya Rao"}</p>
+                              <p className="text-sm text-[#587068]">Assigned to {assignedDoctor?.name ?? "No doctor assigned"}</p>
                             </div>
                           </div>
 
@@ -1281,6 +1229,27 @@ function App() {
                             <span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${upcomingVisit ? statusClasses(upcomingVisit.status) : "bg-[#eaf5ef] text-[#0d523e]"}`}>
                               {upcomingVisit ? upcomingVisit.status : "Confirmed"}
                             </span>
+                          </div>
+
+                          <div className="mt-6 grid gap-4 md:grid-cols-2">
+                            <div className="rounded-2xl border border-[#dfe9e1] bg-white p-4">
+                              <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Assigned doctor</p>
+                              <p className="mt-2 text-lg font-semibold text-[#17362c]">{assignedDoctor?.name ?? "No doctor assigned"}</p>
+                              <p className="mt-1 text-sm text-[#587068]">{assignedDoctor?.specialization ?? "General Physician"}</p>
+                              <p className="mt-1 text-sm text-[#587068]">{assignedDoctor?.email ?? "No doctor account linked"}</p>
+                              <span className="mt-3 inline-flex rounded-full bg-[#eaf5ef] px-2.5 py-1 text-xs font-semibold text-[#0d523e]">● Active</span>
+                              <div className="mt-4 flex gap-3"><button type="button" onClick={() => setScreen("doctors")} className="text-sm font-semibold text-[#19b3a2]">View doctor</button><button type="button" onClick={() => setMessage("Doctor assignment changes require clinic administrator approval.")} className="text-sm font-semibold text-[#19b3a2]">Change</button></div>
+                            </div>
+                            <div className="rounded-2xl border border-[#dfe9e1] bg-white p-4">
+                              <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Doctor access</p>
+                              <p className="mt-2 text-lg font-semibold text-[#17362c]">● Active</p>
+                              <p className="mt-1 text-sm leading-6 text-[#587068]">{assignedDoctor?.name ?? "No doctor"} can access this patient&apos;s medical records and appointments.</p>
+                              <p className="mt-3 text-xs text-[#587068]">Last accessed: Today, 10:32 AM</p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid gap-4 md:grid-cols-3">
+                            {["Medical records", "Appointments", "Billing summary"].map((label) => <div key={label} className="rounded-2xl bg-[#f5faf7] p-4"><p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">{label}</p><p className="mt-2 text-sm font-semibold text-[#17362c]">Available to assigned doctor</p></div>)}
                           </div>
                         </>
                       );
@@ -1553,20 +1522,7 @@ function App() {
             )}
 
             {screen === "billing" && (
-              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
-                <div className="grid gap-5 md:grid-cols-3">
-                  {[
-                    { label: "Monthly revenue", value: "$42,560", tone: "bg-[#19b3a2] text-white" },
-                    { label: "Outstanding", value: "$8,240", tone: "bg-[#fef3d2] text-[#8a5e00]" },
-                    { label: "Collected", value: "$34,320", tone: "bg-[#eaf5ef] text-[#0d523e]" },
-                  ].map((item) => (
-                    <div key={item.label} className={`rounded-3xl p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)] ${item.tone}`}>
-                      <p className="text-sm font-medium opacity-80">{item.label}</p>
-                      <p className="mt-3 text-3xl font-bold">{item.value}</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
+              <BillingPage />
             )}
 
           </main>
