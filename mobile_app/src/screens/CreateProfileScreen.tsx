@@ -13,8 +13,13 @@ function dateKey(date: Date) {
 	return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
-export function CreateProfileScreen({ onComplete }: { onComplete: () => void }) {
+export function CreateProfileScreen({ onComplete }: { onComplete: (profile: { name: string; email: string; password: string }) => Promise<void> }) {
 	const today = new Date();
+	const [name, setName] = useState("");
+	const [email, setEmail] = useState("");
+	const [password, setPassword] = useState("");
+	const [error, setError] = useState("");
+	const [isSaving, setIsSaving] = useState(false);
 	const [birthDate, setBirthDate] = useState<Date | null>(null);
 	const [calendarOpen, setCalendarOpen] = useState(false);
 	const [calendarMonth, setCalendarMonth] = useState(new Date(today.getFullYear() - 25, today.getMonth(), 1));
@@ -38,18 +43,26 @@ export function CreateProfileScreen({ onComplete }: { onComplete: () => void }) 
 		setCalendarOpen(false);
 	}
 
+	async function submit() {
+		if (!name.trim() || !email.trim() || !password) { setError("Name, email, and password are required."); return; }
+		setIsSaving(true); setError("");
+		try { await onComplete({ name: name.trim(), email: email.trim(), password }); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Unable to create your account."); setIsSaving(false); }
+	}
+
 	return (
 		<View style={styles.page}>
 			<Text style={styles.kicker}>YOUR PROFILE</Text>
 			<Text style={styles.title}>Create your profile</Text>
 			<Text style={styles.copy}>Just the essentials for your first visit. You can add medical details later.</Text>
-			<TextInput placeholder="Full name" style={styles.input} />
+			<TextInput value={name} onChangeText={setName} placeholder="Full name" style={styles.input} />
 			<Pressable accessibilityRole="button" onPress={openCalendar} style={styles.input}>
 				<Text style={birthDate ? styles.inputText : styles.placeholder}>{birthDate ? formatDate(birthDate) : "Date of birth - DD / MM / YYYY"}</Text>
 			</Pressable>
-			<TextInput placeholder="Email (optional)" keyboardType="email-address" style={styles.input} />
+			<TextInput value={email} onChangeText={setEmail} placeholder="Email" keyboardType="email-address" autoCapitalize="none" style={styles.input} />
+			<TextInput value={password} onChangeText={setPassword} placeholder="Create password" secureTextEntry style={styles.input} />
+			{error ? <Text style={styles.error}>{error}</Text> : null}
 			<View style={styles.spacer} />
-			<PrimaryButton label="Create account" onPress={onComplete} />
+			<PrimaryButton label={isSaving ? "Creating account..." : "Create account"} onPress={() => void submit()} />
 
 			<Modal transparent visible={calendarOpen} animationType="slide" onRequestClose={() => setCalendarOpen(false)}>
 				<Pressable style={styles.modalBackdrop} onPress={() => setCalendarOpen(false)}>
@@ -88,6 +101,7 @@ const styles = StyleSheet.create({
 	inputText: { color: "#17362c", fontSize: 16 },
 	placeholder: { color: "#71817a", fontSize: 16 },
 	spacer: { flex: 1 },
+	error: { color: "#9f1d2f", marginTop: 4 },
 	modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(23,54,44,0.35)" },
 	calendar: { backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 },
 	calendarHeader: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },

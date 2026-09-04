@@ -1,6 +1,6 @@
 import { request } from "./api";
 
-export type Clinic = { id: string; name: string; city?: string; address?: string; verified?: boolean };
+export type Clinic = { id: string; publicSlug: string; name: string; city?: string; address?: string; verified?: boolean };
 
 export async function resolveClinicQr(qrValue: string): Promise<Clinic> {
   let url: URL;
@@ -16,5 +16,5 @@ export async function resolveClinicQr(qrValue: string): Promise<Clinic> {
   }
 
   const clinic = await request<{ id: string; name: string; address?: string }>(`/api/public/clinics/${encodeURIComponent(clinicSlug)}`);
-  return { id: clinic.id, name: clinic.name, address: clinic.address, verified: true };
+  return { id: clinic.id, publicSlug: clinicSlug, name: clinic.name, address: clinic.address, verified: true };
 }
