@@ -1,15 +1,17 @@
 type LoginPageProps = {
-  authMode: "clinic_admin" | "doctor" | "patient";
+  authMode: "clinic_admin" | "patient";
   email: string;
   mobile: string;
-  otp: string;
   password: string;
+  patientName: string;
+  isPatientRegistration: boolean;
   message: string;
-  onAuthModeChange: (mode: "clinic_admin" | "doctor" | "patient") => void;
+  onAuthModeChange: (mode: "clinic_admin" | "patient") => void;
   onEmailChange: (value: string) => void;
   onMobileChange: (value: string) => void;
-  onOtpChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
+  onPatientNameChange: (value: string) => void;
+  onPatientRegistrationChange: (value: boolean) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onCreateClinicClick: () => void;
 };
@@ -18,14 +20,16 @@ export function LoginPage({
   authMode,
   email,
   mobile,
-  otp,
   password,
+  patientName,
+  isPatientRegistration,
   message,
   onAuthModeChange,
   onEmailChange,
   onMobileChange,
-  onOtpChange,
   onPasswordChange,
+  onPatientNameChange,
+  onPatientRegistrationChange,
   onSubmit,
   onCreateClinicClick,
 }: LoginPageProps) {
@@ -77,23 +81,29 @@ export function LoginPage({
         <div className="flex items-center justify-center bg-[#f2f5f3] px-6 py-10 sm:px-10 lg:px-12">
           <div className="w-full max-w-[560px]">
             <h2 className="text-[3.2rem] font-bold tracking-[-0.06em] text-[#1d2d2a]">Welcome back</h2>
-            <p className="mt-3 text-[1.15rem] text-[#5c6664]">{authMode === "patient" ? "Sign in with mobile and OTP for your clinic" : authMode === "doctor" ? "Sign in to your doctor dashboard" : "Sign in to your clinic dashboard"}</p>
+            <p className="mt-3 text-[1.15rem] text-[#5c6664]">{authMode === "patient" ? "Sign in or create an account for this clinic" : "Sign in to your clinic dashboard"}</p>
 
             <div className="mt-6 flex rounded-2xl border border-[#d8e2d9] bg-white p-1.5">
-              {(["clinic_admin", "doctor", "patient"] as const).map((mode) => (
+              {(["clinic_admin", "patient"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => onAuthModeChange(mode)}
                   className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${authMode === mode ? "bg-[#19b3a2] text-white shadow" : "text-[#587068]"}`}
                 >
-                  {mode === "clinic_admin" ? "Clinic admin" : mode === "doctor" ? "Doctor" : "Patient"}
+                  {mode === "clinic_admin" ? "Clinic admin" : "Patient"}
                 </button>
               ))}
             </div>
 
             <form onSubmit={onSubmit} className="mt-8">
-              {authMode !== "patient" ? (
+              {authMode === "patient" && isPatientRegistration && (
+                <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
+                  Full name
+                  <input value={patientName} onChange={(event) => onPatientNameChange(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 text-[1.05rem] text-[#1d2d2a] focus:outline-none" />
+                </label>
+              )}
+              {(
                 <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
                   Email address
                   <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
@@ -106,12 +116,13 @@ export function LoginPage({
                       onChange={(event) => onEmailChange(event.target.value)}
                       required
                       type="email"
-                      placeholder={authMode === "doctor" ? "doctor@clinic.com" : "clinic@domain.com"}
+                      placeholder="clinic@domain.com"
                       className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
                     />
                   </div>
                 </label>
-              ) : (
+              )}
+              {authMode === "patient" && (
                 <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
                   Mobile number
                   <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
@@ -131,30 +142,7 @@ export function LoginPage({
                 </label>
               )}
 
-              {authMode === "patient" && (
-                <div className="mt-7">
-                  <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
-                    OTP
-                    <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
-                        <path d="M7 10V8a5 5 0 0 1 10 0v2" />
-                        <rect x="5" y="10" width="14" height="9" rx="2" />
-                      </svg>
-                      <input
-                        value={otp}
-                        onChange={(event) => onOtpChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                        required
-                        inputMode="numeric"
-                        maxLength={6}
-                        placeholder="123456"
-                        className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
-                      />
-                    </div>
-                  </label>
-                </div>
-              )}
-
-              {authMode !== "patient" && (
+              {(
                 <div className="mt-7">
                   <div className="flex items-center justify-between">
                     <label className="text-[1.05rem] font-medium text-[#2b3d3a]">Password</label>
@@ -173,7 +161,7 @@ export function LoginPage({
                       onChange={(event) => onPasswordChange(event.target.value)}
                       required
                       type="password"
-                      placeholder={authMode === "doctor" ? "Enter your password" : "Enter your password"}
+                      placeholder="Enter your password"
                       className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
                     />
                     <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-[#5f6e6a] stroke-[1.8]" aria-hidden="true">
@@ -193,9 +181,15 @@ export function LoginPage({
                 type="submit"
                 className="mt-8 w-full rounded-xl bg-[#19b3a2] py-4 text-[1.1rem] font-bold text-white shadow-[0_12px_25px_rgba(25,179,162,0.28)] hover:bg-[#14a191]"
               >
-                {authMode === "patient" ? "Verify mobile & OTP" : authMode === "doctor" ? "Sign In as doctor" : "Sign In as admin"}
+                {authMode === "patient" ? isPatientRegistration ? "Create patient account" : "Sign In as patient" : "Sign In as admin"}
               </button>
             </form>
+
+            {authMode === "patient" && (
+              <button type="button" onClick={() => onPatientRegistrationChange(!isPatientRegistration)} className="mt-5 text-sm font-semibold text-[#19b3a2] hover:text-[#118f88]">
+                {isPatientRegistration ? "Already have an account? Sign in" : "New patient? Create an account"}
+              </button>
+            )}
 
             {message && (
               <p className="mt-6 rounded-xl border border-[#9bc7af] bg-[#e4f1e8] px-4 py-3 text-sm text-[#0d523e]">
