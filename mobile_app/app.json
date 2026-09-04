@@ -10,7 +10,18 @@
       "**/*"
     ],
     "plugins": [
-      "expo-status-bar"
-    ]
+      "expo-status-bar",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Thinkare to use your camera to scan clinic QR codes."
+        }
+      ]
+    ],
+    "android": {
+      "permissions": [
+        "CAMERA"
+      ]
+    }
   }
 }
