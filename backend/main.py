@@ -114,7 +114,9 @@ class SlotRequest(BaseModel):
 
 class BookingRequest(BaseModel):
     slot_id: UUID
+    patient_id: UUID | None = None
     reason: str | None = None
+    patient_notes: str | None = None
 
     '''
     @app.get("/api/medical-records")
@@ -953,10 +955,21 @@ def available_slots(
 @app.post("/api/appointments", status_code=status.HTTP_201_CREATED)
 def book_appointment(
     booking: BookingRequest,
-    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT", "CLINIC_ADMIN", "DOCTOR")),
 ) -> dict[str, str]:
     with psycopg.connect(DATABASE_URL) as connection:
-        patient = connection.execute("SELECT id, clinic_id FROM patients WHERE user_id = %s", (user["id"],)).fetchone()
+        if user["role"] == "PATIENT":
+            patient = connection.execute(
+                "SELECT id, clinic_id FROM patients WHERE user_id = %s AND clinic_id = %s",
+                (user["id"], user["clinic_id"]),
+            ).fetchone()
+        else:
+            if not booking.patient_id:
+                raise HTTPException(status_code=400, detail="patient_id is required when staff creates a booking")
+            patient = connection.execute(
+                "SELECT id, clinic_id FROM patients WHERE id = %s AND clinic_id = %s",
+                (booking.patient_id, user["clinic_id"]),
+            ).fetchone()
         slot = connection.execute(
             """SELECT doctor_id, clinic_id, slot_date, start_time, end_time FROM appointment_slots
                WHERE id = %s AND status = 'AVAILABLE' FOR UPDATE""",
