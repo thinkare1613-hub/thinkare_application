@@ -1,21 +1,24 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
 import { validatePatientDoctorClinicMatch } from "./clinicValidation";
-import { validateOtpCode } from "./otpValidation";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { CreateClinicAccountPage } from "./pages/auth/CreateClinicAccountPage";
 import { MedicalRecordsPage } from "./components/medical-records/MedicalRecordsPage";
 import { AppointmentForm } from "./components/appointments/AppointmentForm";
 import { BillingPage } from "./components/billing/BillingPage";
+import { SuperAdminDashboard } from "./components/SuperAdminDashboard";
 
-type Screen = "login" | "register" | "dashboard" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
-type AuthMode = "clinic_admin" | "doctor" | "patient";
-type UserRole = "clinic_admin" | "doctor" | "patient";
+type Screen = "login" | "register" | "dashboard" | "payments" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
+type AuthMode = "clinic_admin" | "patient";
+type UserRole = "clinic_admin" | "platform_admin" | "doctor" | "patient";
 
 type Appointment = {
+  id?: string;
+  date?: string;
   time: string;
   patient: string;
   doctor: string;
@@ -49,123 +52,11 @@ type Patient = {
   clinicId?: string;
 };
 
-const CLINIC_ID = "clinic-demo-1";
-
-const DOCTOR_CLINIC_MAP: Record<string, string> = {
-  "Dr. Ananya Rao": CLINIC_ID,
-  "Dr. Kabir Menon": CLINIC_ID,
-  "Dr. Aisha Patel": CLINIC_ID,
-  "Dr. Rahul Bose": CLINIC_ID,
-};
-
-const PATIENT_CLINIC_MAP: Record<string, string> = {
-  "Aarav Sharma": CLINIC_ID,
-  "Meera Iyer": CLINIC_ID,
-  "Kabir Khan": CLINIC_ID,
-  "Naina Verma": CLINIC_ID,
-};
-
-const PATIENT_DOCTOR_ASSIGNMENTS: Record<string, string[]> = {
-  "Bhavani Patient": ["Dr. Ananya Rao"],
-  "Aarav Sharma": ["Dr. Ananya Rao"],
-  "Meera Iyer": ["Dr. Kabir Menon"],
-  "Kabir Khan": ["Dr. Aisha Patel"],
-  "Naina Verma": ["Dr. Rahul Bose"],
-};
-
-const initialAppointments: Appointment[] = [
-  { time: "09:00 AM", patient: "Aarav Sharma", doctor: "Dr. Ananya Rao", service: "Consultation", status: "Confirmed" },
-  { time: "10:30 AM", patient: "Meera Iyer", doctor: "Dr. Kabir Menon", service: "Follow-up", status: "Waiting" },
-  { time: "12:00 PM", patient: "Kabir Khan", doctor: "Dr. Aisha Patel", service: "Consultation", status: "In progress" },
-  { time: "02:15 PM", patient: "Naina Verma", doctor: "Dr. Rahul Bose", service: "Check-up", status: "Completed" },
-  { time: "03:30 PM", patient: "Zoya Ali", doctor: "Dr. Saanvi Nair", service: "Consultation", status: "Cancelled" },
-];
-
-const initialDoctors: Doctor[] = [
-  {
-    id: "doc-1",
-    name: "Dr. Ananya Rao",
-    email: "ananya@abcdental.com",
-    phone: "+91 98765 12345",
-    specialization: "Cardiology",
-    qualification: "MD (Cardiology)",
-    licenseNumber: "KMC-CRD-2048",
-    experience: "12 years",
-    profilePhoto: "AR",
-    consultationFee: 1200,
-    status: "Available",
-    availability: "Available today",
-    rating: 4.9,
-    clinicId: CLINIC_ID,
-  },
-  {
-    id: "doc-2",
-    name: "Dr. Kabir Menon",
-    email: "kabir@abcdental.com",
-    phone: "+91 98765 67890",
-    specialization: "Dermatology",
-    qualification: "MBBS, MD (Dermatology)",
-    licenseNumber: "KMC-DER-1176",
-    experience: "9 years",
-    profilePhoto: "KM",
-    consultationFee: 950,
-    status: "Available",
-    availability: "Next slot 1:00 PM",
-    rating: 4.8,
-    clinicId: CLINIC_ID,
-  },
-  {
-    id: "doc-3",
-    name: "Dr. Aisha Patel",
-    email: "aisha@abcdental.com",
-    phone: "+91 98765 45210",
-    specialization: "Pediatrics",
-    qualification: "MBBS, DCH",
-    licenseNumber: "KMC-PED-3301",
-    experience: "11 years",
-    profilePhoto: "AP",
-    consultationFee: 850,
-    status: "Booked",
-    availability: "Available today",
-    rating: 5.0,
-    clinicId: CLINIC_ID,
-  },
-  {
-    id: "doc-4",
-    name: "Dr. Rahul Bose",
-    email: "rahul@abcdental.com",
-    phone: "+91 98765 99876",
-    specialization: "Orthopedics",
-    qualification: "MS (Orthopedics)",
-    licenseNumber: "KMC-ORT-4810",
-    experience: "14 years",
-    profilePhoto: "RB",
-    consultationFee: 1100,
-    status: "On leave",
-    availability: "Next slot 3:30 PM",
-    rating: 4.7,
-    clinicId: CLINIC_ID,
-  },
-];
-
-const initialPatients: Patient[] = [
-  { id: "patient-1", name: "Aarav Sharma", email: "aarav@gmail.com", phone: "+1 415 890 7712", lastVisit: "2 days ago", clinicId: CLINIC_ID },
-  { id: "patient-2", name: "Meera Iyer", email: "meera@gmail.com", phone: "+1 425 810 2856", lastVisit: "4 days ago", clinicId: CLINIC_ID },
-  { id: "patient-3", name: "Kabir Khan", email: "kabir@gmail.com", phone: "+1 510 621 4449", lastVisit: "1 week ago", clinicId: CLINIC_ID },
-  { id: "patient-4", name: "Naina Verma", email: "naina@gmail.com", phone: "+1 602 745 2200", lastVisit: "Today", clinicId: CLINIC_ID },
-];
-
-const summaryCards = [
-  { label: "Today", value: "24", tone: "bg-[#19b3a2] text-white" },
-  { label: "Confirmed", value: "6", tone: "bg-[#eaf5ef] text-[#0d523e]" },
-  { label: "Waiting", value: "2", tone: "bg-[#fff7e9] text-[#8a5e00]" },
-  { label: "Completed", value: "3", tone: "bg-[#edf3ff] text-[#1f3d7a]" },
-];
-
 const quickActions = ["+ New appointment", "Patients", "Doctors", "Schedule"];
 
 const pageMeta: Record<Exclude<Screen, "login" | "register">, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Overview of patient flow and clinic performance." },
+  payments: { title: "Payments", subtitle: "Subscription payment monitoring across clinics." },
   care_team: { title: "My Doctor / Care Team", subtitle: "View your assigned clinician and care team." },
   appointments: { title: "Appointments", subtitle: "Track visits, check-in status, and upcoming time slots." },
   medical_records: { title: "Medical Records", subtitle: "Access your recent reports, summaries, and visit history." },
@@ -179,7 +70,30 @@ const pageMeta: Record<Exclude<Screen, "login" | "register">, { title: string; s
   profile: { title: "Profile", subtitle: "Manage your personal details and preferences." },
 };
 
-const apiUrl = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";
+const apiUrl = import.meta.env.VITE_API_URL ?? "http://192.168.29.157:8000";
+const publicAppUrl = (import.meta.env.VITE_PUBLIC_APP_URL ?? window.location.origin).replace(/\/$/, "");
+
+type ClinicProfile = {
+  id: string;
+  name: string;
+  admin: string;
+  email: string;
+  phone: string;
+  address: string;
+  logo: string;
+  publicSlug: string;
+};
+
+const emptyClinicProfile: ClinicProfile = {
+  id: "",
+  name: "",
+  admin: "",
+  email: "",
+  phone: "",
+  address: "",
+  logo: "",
+  publicSlug: "",
+};
 
 function statusClasses(status: Appointment["status"]) {
   switch (status) {
@@ -202,75 +116,30 @@ function App() {
   const [screen, setScreen] = useState<Screen>("login");
   const [authMode, setAuthMode] = useState<AuthMode>("clinic_admin");
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>("clinic_admin");
-  const [email, setEmail] = useState("admin@gmail.com");
-  const [mobile, setMobile] = useState("+91 98765 43210");
-  const [otp, setOtp] = useState("");
-  const [password, setPassword] = useState("admin@123");
-  const [clinicName, setClinicName] = useState("ABC Dental Clinic");
-  const [adminName, setAdminName] = useState("Dr. John Smith");
-  const [phone, setPhone] = useState("+91 98765 43210");
+  const [email, setEmail] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [password, setPassword] = useState("");
+  const [patientName, setPatientName] = useState("");
+  const [isPatientRegistration, setIsPatientRegistration] = useState(false);
+  const [clinicName, setClinicName] = useState("");
+  const [adminName, setAdminName] = useState("");
+  const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
-  const [clinicProfile, setClinicProfile] = useState({
-    name: "ABC Dental Clinic",
-    admin: "Dr. John Smith",
-    email: "hello@abcdental.com",
-    phone: "+91 98765 43210",
-    address: "MG Road, Bengaluru",
-    logo: "AB",
-  });
-  const [registeredClinics, setRegisteredClinics] = useState<Record<string, typeof clinicProfile>>({
-    "admin@gmail.com": {
-      name: "ABC Dental Clinic",
-      admin: "Dr. John Smith",
-      email: "admin@gmail.com",
-      phone: "+91 98765 43210",
-      address: "MG Road, Bengaluru",
-      logo: "AB",
-    },
-    "bhavani@gmail.com": {
-      name: "Bhavani Clinic",
-      admin: "Bhavani",
-      email: "bhavani@gmail.com",
-      phone: "+91 9787847603",
-      address: "MG Road, Bengaluru",
-      logo: "BC",
-    },
-  });
-  const [patientAccounts, setPatientAccounts] = useState<Record<string, { name: string; clinicEmail: string; clinicName: string; password: string; clinicId: string; phone: string }>>({
-    "bhavani.patient@gmail.com": {
-      name: "Bhavani Patient",
-      clinicEmail: "bhavani@gmail.com",
-      clinicName: "Bhavani Clinic",
-      password: "patient@123",
-      clinicId: CLINIC_ID,
-      phone: "+91 98765 43210",
-    },
-  });
-
-  function applyClinicProfile(nextProfile: Partial<typeof clinicProfile> & { name?: string; admin?: string; email?: string; phone?: string; address?: string; logo?: string }) {
-    setClinicProfile((current) => ({
-      ...current,
-      name: nextProfile.name ?? current.name,
-      admin: nextProfile.admin ?? current.admin,
-      email: nextProfile.email ?? current.email,
-      phone: nextProfile.phone ?? current.phone,
-      address: nextProfile.address ?? current.address,
-      logo: nextProfile.logo ?? current.logo,
-    }));
-  }
-  const [doctorList, setDoctorList] = useState<Doctor[]>(initialDoctors);
-  const [patientList, setPatientList] = useState<Patient[]>(initialPatients);
-  const [selectedPatientName, setSelectedPatientName] = useState(initialPatients[0].name);
-  const [schedule, setSchedule] = useState<Appointment[]>(initialAppointments);
+  const [clinicProfile, setClinicProfile] = useState<ClinicProfile>(emptyClinicProfile);
+  const [accessToken, setAccessToken] = useState("");
+  const [doctorList, setDoctorList] = useState<Doctor[]>([]);
+  const [patientList, setPatientList] = useState<Patient[]>([]);
+  const [selectedPatientName, setSelectedPatientName] = useState("");
+  const [schedule, setSchedule] = useState<Appointment[]>([]);
   const [bookingForm, setBookingForm] = useState({
-    patient: "Aarav Sharma",
-    doctor: "Dr. Ananya Rao",
-    service: "Consultation",
-    date: "2026-08-30",
-    time: "09:00 AM",
+    patient: "",
+    doctor: "",
+    service: "",
+    date: "",
+    time: "",
   });
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
-  const [selectedDoctorId, setSelectedDoctorId] = useState(initialDoctors[0]?.id ?? "");
+  const [selectedDoctorId, setSelectedDoctorId] = useState("");
   const [editingDoctorId, setEditingDoctorId] = useState<string | null>(null);
   const [newDoctorForm, setNewDoctorForm] = useState({
     name: "",
@@ -291,7 +160,7 @@ function App() {
     email: "",
     phone: "",
     lastVisit: "Today",
-    doctor: "Dr. Ananya Rao",
+    doctor: "",
   });
 
   useEffect(() => {
@@ -306,9 +175,11 @@ function App() {
       .then((clinic) => {
         setClinicProfile((current) => ({
           ...current,
+          id: clinic.id,
           name: clinic.name,
           address: clinic.address,
           logo: clinic.name.slice(0, 2).toUpperCase(),
+          publicSlug: clinicSlug,
         }));
         setAuthMode("patient");
         setScreen("login");
@@ -317,17 +188,43 @@ function App() {
       .catch((error: Error) => setMessage(error.message));
   }, []);
 
+  useEffect(() => {
+    if (!accessToken) return;
+
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    Promise.all([
+      fetch(`${apiUrl}/api/doctors`, { headers }),
+      fetch(`${apiUrl}/api/patients`, { headers }),
+      fetch(`${apiUrl}/api/appointments`, { headers }),
+    ])
+      .then(async ([doctorsResponse, patientsResponse, appointmentsResponse]) => {
+        if (!doctorsResponse.ok || !patientsResponse.ok || !appointmentsResponse.ok) {
+          throw new Error("Unable to load clinic data.");
+        }
+        const [doctors, patients, appointments] = await Promise.all([
+          doctorsResponse.json(),
+          patientsResponse.json(),
+          appointmentsResponse.json(),
+        ]);
+        setDoctorList(doctors.map((doctor: Record<string, unknown>) => ({
+          id: String(doctor.id), name: String(doctor.name ?? ""), email: String(doctor.email ?? ""),
+          phone: String(doctor.phone ?? ""), specialization: String(doctor.specialization ?? "General Medicine"),
+          qualification: String(doctor.qualification ?? ""), licenseNumber: String(doctor.license_number ?? ""),
+          experience: String(doctor.experience ?? doctor.experience_years ?? ""), profilePhoto: String(doctor.profile_photo ?? ""),
+          consultationFee: Number(doctor.consultation_fee ?? 0), status: doctor.status === "Booked" || doctor.status === "On leave" ? doctor.status : "Available",
+          availability: String(doctor.availability ?? ""), rating: Number(doctor.rating ?? 0), clinicId: String(doctor.clinic_id ?? ""),
+        })));
+        setPatientList(patients.map((patient: Record<string, unknown>) => ({
+          id: String(patient.id), name: String(patient.name ?? ""), email: String(patient.email ?? ""),
+          phone: String(patient.phone ?? ""), lastVisit: String(patient.last_visit ?? "No visits yet"), clinicId: String(patient.clinic_id ?? ""),
+        })));
+        setSchedule(appointments as Appointment[]);
+      })
+      .catch((error: Error) => setMessage(error.message));
+  }, [accessToken]);
+
   const selectedPatient = patientList.find((entry) => entry.name === selectedPatientName) ?? patientList[0];
-  const assignedDoctorsForCurrentPatient = useMemo(() => {
-    const patientName = selectedPatient?.name ?? "Bhavani Patient";
-    const assignedDoctors = PATIENT_DOCTOR_ASSIGNMENTS[patientName] ?? [doctorList[0]?.name ?? "Dr. Ananya Rao"];
-
-    if (currentUserRole !== "patient") {
-      return doctorList.filter((doctor) => assignedDoctors.includes(doctor.name));
-    }
-
-    return doctorList.filter((doctor) => assignedDoctors.includes(doctor.name));
-  }, [currentUserRole, doctorList, selectedPatient]);
+  const assignedDoctorsForCurrentPatient = doctorList;
 
   const eligibleDoctors = useMemo(() => {
     if (!selectedPatient) {
@@ -342,10 +239,8 @@ function App() {
   }, [assignedDoctorsForCurrentPatient, currentUserRole, doctorList, selectedPatient]);
 
   const visiblePatients = useMemo(() => {
-    if (currentUserRole !== "doctor") return patientList;
-    const doctorName = "Dr. Ananya Rao";
-    return patientList.filter((patient) => (PATIENT_DOCTOR_ASSIGNMENTS[patient.name] ?? []).includes(doctorName));
-  }, [currentUserRole, patientList]);
+    return patientList;
+  }, [patientList]);
 
   function resetRegistrationForm() {
     setClinicName("");
@@ -357,8 +252,8 @@ function App() {
 
   function handleSignOut() {
     setCurrentUserRole("clinic_admin");
-    setOtp("");
-    setMobile("+91 98765 43210");
+    setAccessToken("");
+    setMobile("");
     setScreen("login");
     setMessage("You have been signed out.");
   }
@@ -366,101 +261,46 @@ function App() {
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (authMode === "doctor") {
-      if (email.trim().toLowerCase() !== "ananya@abcdental.com" || password !== "doctor@123") {
-        setMessage("Incorrect doctor email or password.");
-        return;
-      }
-
-      setCurrentUserRole("doctor");
-      setSelectedPatientName("Aarav Sharma");
-      setClinicProfile((current) => ({ ...current, name: "ABC Dental Clinic" }));
-      setMessage("Welcome back, Dr. Ananya Rao.");
-      setScreen("dashboard");
-      return;
-    }
-
-    if (authMode === "patient") {
-      const otpError = validateOtpCode(otp);
-      if (otpError) {
-        setMessage(otpError);
-        return;
-      }
-
-      const patientEmail = (email || "").trim().toLowerCase();
-      const directPatient = patientEmail ? patientAccounts[patientEmail] : undefined;
-      const patientByPhone = Object.values(patientAccounts).find((entry) => entry.phone === mobile);
-      const resolvedPatient = directPatient ?? patientByPhone;
-
-      if (!resolvedPatient) {
-        setMessage("Patient account not found for this clinic.");
-        return;
-      }
-
-      if (resolvedPatient.password !== password && otp !== "123456") {
-        setMessage("Incorrect patient password or OTP.");
-        return;
-      }
-
-      const clinic = registeredClinics[resolvedPatient.clinicEmail] ?? {
-        name: resolvedPatient.clinicName,
-        admin: resolvedPatient.clinicName,
-        email: resolvedPatient.clinicEmail,
-        phone: resolvedPatient.phone || "+91 00000 00000",
-        address: "Clinic address",
-        logo: resolvedPatient.clinicName.slice(0, 2).toUpperCase(),
-      };
-
-      setClinicProfile({
-        name: clinic.name,
-        admin: clinic.admin,
-        email: clinic.email,
-        phone: clinic.phone,
-        address: clinic.address,
-        logo: clinic.logo,
-      });
-      setCurrentUserRole("patient");
-      setSelectedPatientName(resolvedPatient.name);
-      setMessage(`Welcome, ${resolvedPatient.name}. OTP verified successfully.`);
-      setScreen("dashboard");
-      return;
-    }
-
     try {
-      const response = await fetch(`${apiUrl}/api/auth/login`, {
+      const isPublicPatientRegistration = authMode === "patient" && isPatientRegistration && clinicProfile.publicSlug;
+      const response = await fetch(
+        isPublicPatientRegistration
+          ? `${apiUrl}/api/public/clinics/${encodeURIComponent(clinicProfile.publicSlug)}/patients/register`
+          : `${apiUrl}/api/auth/login`,
+        {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
+        body: JSON.stringify(isPublicPatientRegistration ? { name: patientName, email, phone: mobile, password } : { email, password }),
+        },
+      );
 
       if (!response.ok) {
         throw new Error("Sign in failed");
       }
 
       const data = await response.json();
+      const role = String(data.user?.role ?? "").toLowerCase() as UserRole;
+      if (role !== authMode && !(authMode === "clinic_admin" && role === "platform_admin")) {
+        throw new Error("This account does not match the selected sign-in role.");
+      }
+      if (role === "patient" && clinicProfile.id && data.user?.clinic_id !== clinicProfile.id) {
+        throw new Error("This patient account does not belong to the clinic in this QR code.");
+      }
+      setAccessToken(data.access_token);
       const clinicNameFromServer = data.user?.clinic_name || "Clinic Workspace";
 
-      if (registeredClinics[email]) {
-        const savedClinic = registeredClinics[email];
-        setClinicProfile({
-          name: savedClinic.name,
-          admin: savedClinic.admin,
-          email: savedClinic.email,
-          phone: savedClinic.phone,
-          address: savedClinic.address,
-          logo: savedClinic.logo,
+      if (role === "clinic_admin") {
+        const profileResponse = await fetch(`${apiUrl}/api/clinics/me`, {
+          headers: { Authorization: `Bearer ${data.access_token}` },
         });
-      } else {
-        applyClinicProfile({
-          name: clinicNameFromServer,
-          admin: adminName,
-          email,
-          phone,
-          logo: clinicNameFromServer.slice(0, 2).toUpperCase() || "CL",
-        });
+
+        if (!profileResponse.ok) throw new Error("Clinic profile could not be loaded");
+
+        const profile = await profileResponse.json();
+        setClinicProfile({ id: profile.id ?? "", name: profile.name ?? "", admin: profile.admin ?? "", email: profile.email ?? "", phone: profile.phone ?? "", address: profile.address ?? "", logo: profile.logo_url || profile.name?.slice(0, 2).toUpperCase() || "", publicSlug: profile.public_slug ?? "" });
       }
 
-      setCurrentUserRole("clinic_admin");
+      setCurrentUserRole(role);
       setMessage(`Welcome back, ${clinicNameFromServer}.`);
       setScreen("dashboard");
     } catch {
@@ -489,33 +329,7 @@ function App() {
         throw new Error(data?.detail || "Clinic registration failed");
       }
 
-      const nextProfile = {
-        name: clinicName,
-        admin: adminName,
-        email: data.email || email,
-        phone: phone || "+91 00000 00000",
-        address: "MG Road, Bengaluru",
-        logo: clinicName.slice(0, 2).toUpperCase() || "CL",
-      };
-
-      setRegisteredClinics((current) => ({
-        ...current,
-        [nextProfile.email]: nextProfile,
-      }));
-      setClinicProfile(nextProfile);
-      setPatientAccounts((current) => ({
-        ...current,
-        "bhavani.patient@gmail.com": {
-          name: "Bhavani Patient",
-          clinicEmail: nextProfile.email,
-          clinicName: nextProfile.name,
-          password: "patient@123",
-          clinicId: CLINIC_ID,
-          phone: phone || "+91 90000 00000",
-        },
-      }));
-      setCurrentUserRole("clinic_admin");
-      const bookingUrl = data.public_slug ? `${window.location.origin}/clinic/${data.public_slug}` : "";
+      const bookingUrl = data.public_slug ? `${publicAppUrl}/clinic/${data.public_slug}` : "";
       setMessage(`Clinic account created for ${data.clinic_name}. Patient booking URL: ${bookingUrl}`);
       resetRegistrationForm();
       setEmail(data.email);
@@ -529,9 +343,9 @@ function App() {
   function handleBookingSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const patientClinicId = PATIENT_CLINIC_MAP[bookingForm.patient] ?? CLINIC_ID;
-    const doctorClinicId = DOCTOR_CLINIC_MAP[bookingForm.doctor] ?? CLINIC_ID;
-    const validationError = validatePatientDoctorClinicMatch(patientClinicId, doctorClinicId);
+    const patient = patientList.find((entry) => entry.name === bookingForm.patient);
+    const doctor = doctorList.find((entry) => entry.name === bookingForm.doctor);
+    const validationError = validatePatientDoctorClinicMatch(patient?.clinicId, doctor?.clinicId);
 
     if (validationError) {
       setAssignmentError(validationError);
@@ -551,13 +365,7 @@ function App() {
 
     setSchedule((current) => [newAppointment, ...current]);
     setMessage(`Booking created for ${bookingForm.patient} with ${bookingForm.doctor}.`);
-    setBookingForm({
-      patient: "Aarav Sharma",
-      doctor: "Dr. Ananya Rao",
-      service: "Consultation",
-      date: "2026-08-30",
-      time: "09:00 AM",
-    });
+    setBookingForm({ patient: "", doctor: "", service: "", date: "", time: "" });
     setScreen("appointments");
   }
 
@@ -581,13 +389,13 @@ function App() {
     setEditingDoctorId(null);
   }
 
-  function handleAddDoctor(event: FormEvent<HTMLFormElement>) {
+  async function handleAddDoctor(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const doctorName = newDoctorForm.name.trim();
     if (!doctorName) return;
 
     const doctorPayload: Doctor = {
-      id: editingDoctorId ?? `doc-${Date.now()}`,
+      id: editingDoctorId ?? undefined,
       name: doctorName,
       email: newDoctorForm.email.trim() || `${doctorName.toLowerCase().replace(/\s+/g, ".")}@clinic.com`,
       phone: newDoctorForm.phone.trim() || "+91 90000 00000",
@@ -600,23 +408,25 @@ function App() {
       status: newDoctorForm.status,
       availability: newDoctorForm.availability,
       rating: Number(newDoctorForm.rating),
-      clinicId: CLINIC_ID,
+      clinicId: "",
     };
 
-    setDoctorList((current) => {
-      if (editingDoctorId) {
-        return current.map((doctor) => (doctor.id === editingDoctorId ? doctorPayload : doctor));
-      }
-      return [doctorPayload, ...current];
-    });
-
-    setSelectedDoctorId(doctorPayload.id ?? "");
-    setMessage(
-      editingDoctorId
-        ? `${doctorPayload.name} was updated successfully.`
-        : `${doctorPayload.name} was added to the clinic team.`,
-    );
-    resetDoctorForm();
+    try {
+      const response = await fetch(`${apiUrl}/api/doctors${editingDoctorId ? `/${editingDoctorId}` : ""}`, {
+        method: editingDoctorId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ ...doctorPayload, license_number: doctorPayload.licenseNumber, profile_photo: doctorPayload.profilePhoto, consultation_fee: doctorPayload.consultationFee }),
+      });
+      const saved = await response.json();
+      if (!response.ok) throw new Error(saved.detail || "Unable to save doctor.");
+      const savedDoctor: Doctor = { ...doctorPayload, id: saved.id, clinicId: saved.clinic_id, licenseNumber: saved.license_number, profilePhoto: saved.profile_photo, consultationFee: Number(saved.consultation_fee) };
+      setDoctorList((current) => editingDoctorId ? current.map((doctor) => doctor.id === editingDoctorId ? savedDoctor : doctor) : [savedDoctor, ...current]);
+      setSelectedDoctorId(savedDoctor.id ?? "");
+      setMessage(`${savedDoctor.name} was ${editingDoctorId ? "updated" : "added"} successfully.`);
+      resetDoctorForm();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save doctor.");
+    }
   }
 
   function handleEditDoctor(doctor: Doctor) {
@@ -638,30 +448,31 @@ function App() {
     });
   }
 
-  function handleDeleteDoctor(doctorId: string | undefined) {
+  async function handleDeleteDoctor(doctorId: string | undefined) {
     if (!doctorId) return;
     const doctor = doctorList.find((entry) => entry.id === doctorId);
     if (!doctor) return;
     const confirmed = window.confirm(`Delete ${doctor.name} from this clinic?`);
     if (!confirmed) return;
 
-    setDoctorList((current) => current.filter((entry) => entry.id !== doctorId));
-    if (selectedDoctorId === doctorId) {
-      const nextDoctor = doctorList.find((entry) => entry.id !== doctorId);
-      setSelectedDoctorId(nextDoctor?.id ?? "");
+    try {
+      const response = await fetch(`${apiUrl}/api/doctors/${doctorId}`, { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) throw new Error("Unable to delete doctor.");
+      setDoctorList((current) => current.filter((entry) => entry.id !== doctorId));
+      if (selectedDoctorId === doctorId) setSelectedDoctorId("");
+      if (editingDoctorId === doctorId) resetDoctorForm();
+      setMessage(`${doctor.name} was removed from the clinic team.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to delete doctor.");
     }
-    if (editingDoctorId === doctorId) {
-      resetDoctorForm();
-    }
-    setMessage(`${doctor.name} was removed from the clinic team.`);
   }
 
-  function handleAddPatient(event: FormEvent<HTMLFormElement>) {
+  async function handleAddPatient(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!newPatientForm.name.trim()) return;
 
-    const selectedDoctorClinicId = DOCTOR_CLINIC_MAP[newPatientForm.doctor] ?? CLINIC_ID;
-    const validationError = validatePatientDoctorClinicMatch(CLINIC_ID, selectedDoctorClinicId);
+    const selectedDoctor = doctorList.find((doctor) => doctor.name === newPatientForm.doctor);
+    const validationError = validatePatientDoctorClinicMatch(clinicProfile.name ? selectedDoctor?.clinicId : undefined, selectedDoctor?.clinicId);
 
     if (validationError) {
       setAssignmentError(validationError);
@@ -669,32 +480,19 @@ function App() {
       return;
     }
 
-    const patientEmail = (newPatientForm.email || `${newPatientForm.name.trim().toLowerCase().replace(/\s+/g, ".")}@clinic.com`).toLowerCase();
-    const patientPassword = "patient@123";
-    const addedPatient: Patient = {
-      name: newPatientForm.name.trim(),
-      email: patientEmail,
-      phone: newPatientForm.phone || "+91 90000 00000",
-      lastVisit: "Today",
-      clinicId: CLINIC_ID,
-    };
-
-    setAssignmentError(null);
-    setPatientAccounts((current) => ({
-      ...current,
-      [patientEmail]: {
-        name: addedPatient.name,
-        clinicEmail: email || "bhavani@gmail.com",
-        clinicName: clinicProfile.name || "Bhavani Clinic",
-        password: patientPassword,
-        clinicId: CLINIC_ID,
-        phone: addedPatient.phone,
-      },
-    }));
-    setPatientList((current) => [addedPatient, ...current]);
-    setSelectedPatientName(addedPatient.name);
-    setMessage(`${addedPatient.name} was added and assigned to ${newPatientForm.doctor}. Patient login: ${patientEmail} / ${patientPassword}`);
-    setNewPatientForm({ name: "", email: "", phone: "", lastVisit: "Today", doctor: "Dr. Ananya Rao" });
+    try {
+      const response = await fetch(`${apiUrl}/api/patients`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ name: newPatientForm.name.trim(), email: newPatientForm.email || null, phone: newPatientForm.phone || null }) });
+      const saved = await response.json();
+      if (!response.ok) throw new Error(saved.detail || "Unable to save patient.");
+      const addedPatient: Patient = { id: saved.id, name: saved.name, email: saved.email, phone: saved.phone, lastVisit: saved.last_visit, clinicId: saved.clinic_id };
+      setAssignmentError(null);
+      setPatientList((current) => [addedPatient, ...current]);
+      setSelectedPatientName(addedPatient.name);
+      setMessage(`${addedPatient.name} was added successfully.`);
+      setNewPatientForm({ name: "", email: "", phone: "", lastVisit: "Today", doctor: "" });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save patient.");
+    }
   }
 
   function updateAppointmentStatus(patientName: string, nextStatus: Appointment["status"]) {
@@ -712,14 +510,16 @@ function App() {
         authMode={authMode}
         email={email}
         mobile={mobile}
-        otp={otp}
         password={password}
+        patientName={patientName}
+        isPatientRegistration={isPatientRegistration}
         message={message}
         onAuthModeChange={setAuthMode}
         onEmailChange={setEmail}
         onMobileChange={setMobile}
-        onOtpChange={setOtp}
         onPasswordChange={setPassword}
+        onPatientNameChange={setPatientName}
+        onPatientRegistrationChange={setIsPatientRegistration}
         onSubmit={login}
         onCreateClinicClick={() => {
           resetRegistrationForm();
@@ -771,6 +571,29 @@ function App() {
     { key: "medical_records", label: "Medical Records", icon: "◌" },
     { key: "prescriptions", label: "Prescriptions", icon: "✓" },
   ];
+  const clinicBookingUrl = clinicProfile.publicSlug
+    ? `${publicAppUrl}/clinic/${clinicProfile.publicSlug}`
+    : "";
+
+  if (currentUserRole === "platform_admin") {
+    const platformNavItems = [
+      { key: "dashboard", label: "Dashboard", icon: "▣" },
+      { key: "payments", label: "Payments", icon: "◍" },
+    ];
+
+    return (
+      <div className="min-h-screen bg-[#f3f6f3] text-[#17362c]">
+        <div className="mx-auto flex max-w-[1600px] flex-col lg:flex-row">
+          <Sidebar activePage={screen} onSelectPage={(page) => setScreen(page as Screen)} navItems={platformNavItems} brandName="Thinkare" />
+          <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+            <Header title={screen === "payments" ? "Payments" : "Platform Dashboard"} subtitle="Central monitoring across all Thinkare clinics." userName="Super Admin" userRole="Platform Administration" brandName="Thinkare" onSignOut={handleSignOut} />
+            <main className="flex-1"><SuperAdminDashboard apiUrl={apiUrl} accessToken={accessToken} view={screen === "payments" ? "payments" : "dashboard"} /></main>
+            <Footer />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f3f6f3] text-[#17362c]">
@@ -861,12 +684,17 @@ function App() {
                 <div className="mt-8 grid gap-4 md:grid-cols-4">
                   {(isPatientView
                     ? [
-                        { label: "Upcoming visits", value: "2", tone: "bg-[#19b3a2] text-white" },
+                        { label: "Upcoming visits", value: String(schedule.length), tone: "bg-[#19b3a2] text-white" },
                         { label: "Care plan", value: "Active", tone: "bg-[#eaf5ef] text-[#0d523e]" },
-                        { label: "Records", value: "7", tone: "bg-[#fff7e9] text-[#8a5e00]" },
-                        { label: "Prescriptions", value: "3", tone: "bg-[#edf3ff] text-[#1f3d7a]" },
+                        { label: "Records", value: "-", tone: "bg-[#fff7e9] text-[#8a5e00]" },
+                        { label: "Prescriptions", value: "-", tone: "bg-[#edf3ff] text-[#1f3d7a]" },
                       ]
-                    : summaryCards
+                    : [
+                        { label: "Today", value: String(schedule.length), tone: "bg-[#19b3a2] text-white" },
+                        { label: "Confirmed", value: String(schedule.filter((item) => item.status === "Confirmed").length), tone: "bg-[#eaf5ef] text-[#0d523e]" },
+                        { label: "Waiting", value: String(schedule.filter((item) => item.status === "Waiting").length), tone: "bg-[#fff7e9] text-[#8a5e00]" },
+                        { label: "Completed", value: String(schedule.filter((item) => item.status === "Completed").length), tone: "bg-[#edf3ff] text-[#1f3d7a]" },
+                      ]
                   ).map((card) => (
                     <div key={card.label} className={`rounded-2xl border border-[#d8e2d9] p-5 ${card.tone}`}>
                       <p className="text-sm font-medium opacity-80">{card.label}</p>
@@ -943,6 +771,18 @@ function App() {
                         </div>
                       </div>
                     </div>
+
+                    {currentUserRole === "clinic_admin" && clinicBookingUrl && (
+                      <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                        <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Clinic booking QR</p>
+                        <div className="mt-4 flex items-center gap-4">
+                          <QRCodeSVG value={clinicBookingUrl} size={96} includeMargin />
+                          <a href={clinicBookingUrl} target="_blank" rel="noreferrer" className="min-w-0 break-all text-sm font-medium text-[#17362c] hover:text-[#19b3a2]">
+                            {clinicBookingUrl}
+                          </a>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
                       <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Next patient</p>
@@ -1021,7 +861,7 @@ function App() {
                     )}
                     <AppointmentForm
                       patients={patientList.map((patient) => ({ id: patient.id ?? patient.name, name: patient.name }))}
-                      doctors={(currentUserRole === "patient" ? assignedDoctorsForCurrentPatient : doctorList.filter((doctor) => doctor.clinicId === (PATIENT_CLINIC_MAP[bookingForm.patient] ?? CLINIC_ID))).map((doctor) => ({ id: doctor.id ?? doctor.name, name: doctor.name }))}
+                      doctors={(currentUserRole === "patient" ? assignedDoctorsForCurrentPatient : eligibleDoctors).map((doctor) => ({ id: doctor.id ?? doctor.name, name: doctor.name }))}
                       form={bookingForm}
                       onChange={(field, value) => setBookingForm((current) => ({ ...current, [field]: value }))}
                       onSubmit={handleBookingSubmit}
