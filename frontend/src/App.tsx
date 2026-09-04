@@ -206,6 +206,7 @@ function App() {
   const [mobile, setMobile] = useState("+91 98765 43210");
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("admin@123");
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [clinicName, setClinicName] = useState("ABC Dental Clinic");
   const [adminName, setAdminName] = useState("Dr. John Smith");
   const [phone, setPhone] = useState("+91 98765 43210");
@@ -418,6 +419,7 @@ function App() {
       }
 
       const data = await response.json();
+      setAuthToken(data.access_token ?? null);
       const clinicNameFromServer = data.user?.clinic_name || "Clinic Workspace";
 
       if (registeredClinics[email]) {
@@ -506,7 +508,7 @@ function App() {
     }
   }
 
-  function handleBookingSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleBookingSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const patientClinicId = PATIENT_CLINIC_MAP[bookingForm.patient] ?? CLINIC_ID;
@@ -520,6 +522,35 @@ function App() {
     }
 
     setAssignmentError(null);
+
+    const patient = patientList.find((entry) => entry.name === bookingForm.patient);
+    const doctor = doctorList.find((entry) => entry.name === bookingForm.doctor);
+    const isUuid = (value?: string): value is string => Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
+
+    if (authToken && isUuid(patient?.id) && isUuid(doctor?.id)) {
+      try {
+        const slotsResponse = await fetch(`${apiUrl}/api/slots?doctor_id=${doctor.id}&slot_date=${bookingForm.date}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        const slots = await slotsResponse.json();
+        const selectedSlot = slots.find((slot: { start_time: string }) => slot.start_time.startsWith(bookingForm.time.slice(0, 5)));
+        if (!selectedSlot) {
+          throw new Error("That time is not available for the selected date.");
+        }
+
+        const bookingResponse = await fetch(`${apiUrl}/api/appointments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ slot_id: selectedSlot.id, patient_id: patient.id, reason: bookingForm.service }),
+        });
+        const result = await bookingResponse.json();
+        if (!bookingResponse.ok) throw new Error(result?.detail || "Booking failed");
+        setMessage(`Booking ${result.appointment_number} created for ${bookingForm.patient}.`);
+      } catch (error) {
+        setAssignmentError(error instanceof Error ? error.message : "Unable to create booking.");
+        return;
+      }
+    }
 
     const newAppointment: Appointment = {
       patient: bookingForm.patient,
