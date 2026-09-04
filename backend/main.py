@@ -847,56 +847,16 @@ def doctors(
         ]
 
     with psycopg.connect(DATABASE_URL) as connection:
-        if user["role"] == "PATIENT":
-            patient = connection.execute(
-                "SELECT id, clinic_id FROM patients WHERE user_id = %s",
-                (user["id"],),
-            ).fetchone()
-            if not patient:
-                return []
-            doctor_records = connection.execute(
-                """
-                SELECT DISTINCT a.doctor_id
-                FROM appointments a
-                WHERE a.patient_id = %s AND a.clinic_id = %s
-                ORDER BY a.appointment_date DESC, a.start_time DESC
-                """,
-                (patient[0], str(patient[1])),
-            ).fetchall()
-            if not doctor_records:
-                return []
-            doctor_ids = [row[0] for row in doctor_records]
-            placeholders = ", ".join(["%s"] * len(doctor_ids))
-            query = f"""
-                SELECT DISTINCT doctors.id, users.first_name, users.last_name, doctors.qualification,
-                       doctors.experience_years, doctors.consultation_fee
-                FROM doctors JOIN users ON users.id = doctors.user_id
-                LEFT JOIN doctor_specialties ON doctor_specialties.doctor_id = doctors.id
-                WHERE doctors.is_active = TRUE
-                  AND doctors.id IN ({placeholders})
-                  AND (%s IS NULL OR doctor_specialties.specialty_id = %s)
-                ORDER BY users.first_name, users.last_name
+        records = connection.execute(
             """
-            params: list[object] = [*doctor_ids, specialty_id, specialty_id]
-            records = connection.execute(query, tuple(params)).fetchall()
-            return [{"id": str(row[0]), "name": f"{row[1]} {row[2] or ''}".strip(), "qualification": row[3], "experience_years": row[4], "consultation_fee": row[5]} for row in records]
-
-        query = """
-            SELECT DISTINCT doctors.id, users.first_name, users.last_name, doctors.qualification,
-                   doctors.experience_years, doctors.consultation_fee
+            SELECT doctors.id, CONCAT_WS(' ', users.first_name, users.last_name), users.email, users.phone,
+                   doctors.qualification, doctors.experience_years, doctors.consultation_fee, doctors.clinic_id
             FROM doctors JOIN users ON users.id = doctors.user_id
-            LEFT JOIN doctor_specialties ON doctor_specialties.doctor_id = doctors.id
-            WHERE doctors.is_active = TRUE AND (%s IS NULL OR doctor_specialties.specialty_id = %s)
-        """
-        params: list[object] = [specialty_id, specialty_id]
-        scope_sql, scope_params = clinic_scope_clause(user)
-        if scope_sql:
-            query += scope_sql
-            params.extend(scope_params)
-        query += " ORDER BY users.first_name, users.last_name "
-
-        records = connection.execute(query, tuple(params)).fetchall()
-    return [{"id": str(row[0]), "name": f"{row[1]} {row[2] or ''}".strip(), "qualification": row[3], "experience_years": row[4], "consultation_fee": row[5]} for row in records]
+            WHERE doctors.clinic_id = %s AND doctors.is_active = TRUE
+            ORDER BY users.first_name, users.last_name
+            """, (user["clinic_id"],)
+        ).fetchall()
+    return [{"id": str(row[0]), "name": row[1], "email": row[2], "phone": row[3], "qualification": row[4] or "", "experience_years": row[5] or 0, "consultation_fee": row[6] or 0, "clinic_id": str(row[7])} for row in records]
 
 
 @app.get("/api/patients")
@@ -1064,32 +1024,16 @@ def create_doctor(
     if not doctor_name:
         raise HTTPException(status_code=400, detail="Doctor name is required")
 
-    doctor_id = str(payload.get("id") or f"doc-{uuid4().hex[:8]}")
-    doctor_record = {
-        "id": doctor_id,
-        "name": doctor_name,
-        "email": str(payload.get("email") or f"{doctor_name.lower().replace(' ', '.')}@clinic.com"),
-        "phone": str(payload.get("phone") or "+91 90000 00000"),
-        "specialization": str(payload.get("specialization") or payload.get("specialty") or "General Medicine"),
-        "qualification": str(payload.get("qualification") or ""),
-        "license_number": str(payload.get("license_number") or ""),
-        "experience": str(payload.get("experience") or payload.get("experience_years") or "5 years"),
-        "profile_photo": str(payload.get("profile_photo") or doctor_name[:2].upper()),
-        "consultation_fee": payload.get("consultation_fee") if payload.get("consultation_fee") is not None else 800,
-        "status": str(payload.get("status") or "Available"),
-        "availability": str(payload.get("availability") or "Available today"),
-        "rating": float(payload.get("rating") if payload.get("rating") is not None else 4.8),
-        "clinic_id": clinic_id,
-    }
-
-    store = app.state.doctor_store
-    existing = next((entry for entry in store if entry.get("id") == doctor_id), None)
-    if existing:
-        existing.update(doctor_record)
-    else:
-        store.append(doctor_record)
-
-    return _doctor_response(doctor_record)
+    name_parts = doctor_name.split(maxsplit=1)
+    with psycopg.connect(DATABASE_URL) as connection:
+        role = connection.execute("SELECT id FROM roles WHERE name = 'DOCTOR'").fetchone()
+        if not role:
+            raise HTTPException(status_code=500, detail="DOCTOR role is not configured")
+        email = str(payload.get("email") or f"doctor-{uuid4().hex[:8]}@clinic.local")
+        doctor_user = connection.execute("""INSERT INTO users (id, role_id, first_name, last_name, email, phone, password_hash, is_active, is_verified) VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, TRUE) RETURNING id""", (str(uuid4()), role[0], name_parts[0], name_parts[1] if len(name_parts) > 1 else "", email, str(payload.get("phone") or ""), password_hash.hash(uuid4().hex))).fetchone()
+        record = connection.execute("""INSERT INTO doctors (user_id, clinic_id, license_number, qualification, experience_years, consultation_fee, is_active) VALUES (%s, %s, %s, %s, %s, %s, TRUE) RETURNING id""", (doctor_user[0], clinic_id, str(payload.get("license_number") or ""), str(payload.get("qualification") or ""), Decimal(str(payload.get("experience") or 0).split()[0]), Decimal(str(payload.get("consultation_fee") or 0)))).fetchone()
+        connection.commit()
+    return {"id": str(record[0]), "name": doctor_name, "email": email, "phone": str(payload.get("phone") or ""), "qualification": str(payload.get("qualification") or ""), "clinic_id": clinic_id}
 
 
 @app.get("/api/doctors/{doctor_id}")

@@ -192,11 +192,11 @@ function App() {
     if (!accessToken) return;
 
     const headers = { Authorization: `Bearer ${accessToken}` };
-    Promise.all([
-      fetch(`${apiUrl}/api/doctors`, { headers }),
-      fetch(`${apiUrl}/api/patients`, { headers }),
-      fetch(`${apiUrl}/api/appointments`, { headers }),
-    ])
+    const loadClinicData = () => Promise.all([
+        fetch(`${apiUrl}/api/doctors`, { headers }),
+        fetch(`${apiUrl}/api/patients`, { headers }),
+        fetch(`${apiUrl}/api/appointments`, { headers }),
+      ])
       .then(async ([doctorsResponse, patientsResponse, appointmentsResponse]) => {
         if (!doctorsResponse.ok || !patientsResponse.ok || !appointmentsResponse.ok) {
           throw new Error("Unable to load clinic data.");
@@ -221,6 +221,10 @@ function App() {
         setSchedule(appointments as Appointment[]);
       })
       .catch((error: Error) => setMessage(error.message));
+
+    void loadClinicData();
+    const refreshInterval = window.setInterval(() => void loadClinicData(), 20_000);
+    return () => window.clearInterval(refreshInterval);
   }, [accessToken]);
 
   const selectedPatient = patientList.find((entry) => entry.name === selectedPatientName) ?? patientList[0];
