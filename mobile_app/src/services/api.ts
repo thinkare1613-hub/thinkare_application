@@ -5,6 +5,9 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
     ...options,
   });
-  if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { detail?: string } | null;
+    throw new Error(body?.detail ?? `Request failed: ${response.status}`);
+  }
   return response.json() as Promise<T>;
 }

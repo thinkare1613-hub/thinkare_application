@@ -26,7 +26,13 @@ export function AppNavigator() {
   if (screen === "profile") return <CreateProfileScreen onComplete={async (profile) => {
     if (!clinic) throw new Error("Scan a clinic QR code before creating an account.");
     const clinicSlug = clinic.publicSlug;
-    const response = await request<{ access_token: string }>(`/api/public/clinics/${encodeURIComponent(clinicSlug)}/patients/register`, { method: "POST", body: JSON.stringify({ ...profile, phone }) });
+    let response: { access_token: string };
+    try {
+      response = await request<{ access_token: string }>(`/api/public/clinics/${encodeURIComponent(clinicSlug)}/patients/register`, { method: "POST", body: JSON.stringify({ ...profile, phone }) });
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("already uses")) throw error;
+      response = await request<{ access_token: string }>("/api/auth/login", { method: "POST", body: JSON.stringify({ email: profile.email, password: profile.password }) });
+    }
     authStore.token = response.access_token;
     authStore.patientName = profile.name;
     setScreen("home");
