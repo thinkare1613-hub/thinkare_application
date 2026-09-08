@@ -22,6 +22,8 @@ export function CreateProfileScreen({ onComplete }: { onComplete: (profile: { na
 	const [isSaving, setIsSaving] = useState(false);
 	const [birthDate, setBirthDate] = useState<Date | null>(null);
 	const [calendarOpen, setCalendarOpen] = useState(false);
+	const [yearPickerOpen, setYearPickerOpen] = useState(false);
+	const [yearRangeStart, setYearRangeStart] = useState(today.getFullYear() - 23);
 	const [calendarMonth, setCalendarMonth] = useState(new Date(today.getFullYear() - 25, today.getMonth(), 1));
 	const calendarDays = useMemo(() => {
 		const firstDay = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1).getDay();
@@ -33,8 +35,16 @@ export function CreateProfileScreen({ onComplete }: { onComplete: (profile: { na
 	}, [calendarMonth]);
 
 	function openCalendar() {
-		setCalendarMonth(birthDate ? new Date(birthDate.getFullYear(), birthDate.getMonth(), 1) : new Date(today.getFullYear() - 25, today.getMonth(), 1));
+		const initialDate = birthDate ?? new Date(today.getFullYear() - 25, today.getMonth(), 1);
+		setCalendarMonth(initialDate);
+		setYearRangeStart(Math.max(1900, Math.min(today.getFullYear() - 23, initialDate.getFullYear() - 11)));
+		setYearPickerOpen(false);
 		setCalendarOpen(true);
+	}
+
+	function chooseYear(year: number) {
+		setCalendarMonth(new Date(year, calendarMonth.getMonth(), 1));
+		setYearPickerOpen(false);
 	}
 
 	function selectDate(date: Date) {
@@ -68,22 +78,22 @@ export function CreateProfileScreen({ onComplete }: { onComplete: (profile: { na
 				<Pressable style={styles.modalBackdrop} onPress={() => setCalendarOpen(false)}>
 					<Pressable style={styles.calendar} onPress={(event) => event.stopPropagation()}>
 						<View style={styles.calendarHeader}>
-							<Pressable accessibilityLabel="Previous month" onPress={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} style={styles.monthButton}>
+							<Pressable accessibilityLabel="Previous year" onPress={() => setCalendarMonth(new Date(calendarMonth.getFullYear() - 1, calendarMonth.getMonth(), 1))} style={styles.monthButton}>
 								<Text style={styles.monthButtonText}>‹</Text>
 							</Pressable>
-							<Text style={styles.monthTitle}>{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</Text>
-							<Pressable accessibilityLabel="Next month" onPress={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} style={styles.monthButton}>
+							<Pressable accessibilityRole="button" onPress={() => setYearPickerOpen((open) => !open)}><Text style={styles.monthTitle}>{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</Text></Pressable>
+							<Pressable accessibilityLabel="Next year" onPress={() => setCalendarMonth(new Date(calendarMonth.getFullYear() + 1, calendarMonth.getMonth(), 1))} style={styles.monthButton}>
 								<Text style={styles.monthButtonText}>›</Text>
 							</Pressable>
 						</View>
-						<View style={styles.weekRow}>{weekDays.map((day) => <Text key={day} style={styles.weekDay}>{day}</Text>)}</View>
+						{yearPickerOpen ? <><View style={styles.yearRangeHeader}><Pressable accessibilityLabel="Earlier years" disabled={yearRangeStart <= 1900} onPress={() => setYearRangeStart((year) => Math.max(1900, year - 24))} style={styles.monthButton}><Text style={styles.monthButtonText}>‹</Text></Pressable><Text style={styles.rangeTitle}>{yearRangeStart} - {Math.min(yearRangeStart + 23, today.getFullYear())}</Text><Pressable accessibilityLabel="Later years" disabled={yearRangeStart + 23 >= today.getFullYear()} onPress={() => setYearRangeStart((year) => Math.min(today.getFullYear() - 23, year + 24))} style={styles.monthButton}><Text style={styles.monthButtonText}>›</Text></Pressable></View><View style={styles.yearGrid}>{Array.from({ length: Math.min(24, today.getFullYear() - yearRangeStart + 1) }, (_, index) => yearRangeStart + index).reverse().map((year) => <Pressable key={year} onPress={() => chooseYear(year)} style={[styles.year, year === calendarMonth.getFullYear() && styles.selectedYear]}><Text style={year === calendarMonth.getFullYear() ? styles.selectedYearText : styles.yearText}>{year}</Text></Pressable>)}</View></> : <><View style={styles.weekRow}>{weekDays.map((day) => <Text key={day} style={styles.weekDay}>{day}</Text>)}</View>
 						<View style={styles.daysGrid}>
 							{calendarDays.map((date, index) => date ? (
 								<Pressable key={dateKey(date)} disabled={date > today} onPress={() => selectDate(date)} style={[styles.day, dateKey(date) === (birthDate ? dateKey(birthDate) : "") && styles.selectedDay, date > today && styles.disabledDay]}>
 									<Text style={[styles.dayText, dateKey(date) === (birthDate ? dateKey(birthDate) : "") && styles.selectedDayText, date > today && styles.disabledDayText]}>{date.getDate()}</Text>
 								</Pressable>
 							) : <View key={`empty-${index}`} style={styles.day} />)}
-						</View>
+						</View></>}
 						<Pressable onPress={() => setCalendarOpen(false)} style={styles.cancelButton}><Text style={styles.cancelText}>Cancel</Text></Pressable>
 					</Pressable>
 				</Pressable>
@@ -117,6 +127,13 @@ const styles = StyleSheet.create({
 	selectedDayText: { color: "#fff", fontWeight: "800" },
 	disabledDay: { opacity: 0.3 },
 	disabledDayText: { color: "#71817a" },
+	yearGrid: { flexDirection: "row", flexWrap: "wrap", marginTop: 20 },
+	yearRangeHeader: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
+	rangeTitle: { color: "#17362c", fontSize: 16, fontWeight: "800" },
+	year: { alignItems: "center", paddingVertical: 12, width: "25%" },
+	yearText: { color: "#17362c", fontSize: 16 },
+	selectedYear: { backgroundColor: "#0d8f7c", borderRadius: 16 },
+	selectedYearText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 	cancelButton: { alignItems: "center", borderColor: "#c7d5ca", borderRadius: 12, borderWidth: 1, marginTop: 16, padding: 14 },
 	cancelText: { color: "#0d8f7c", fontSize: 16, fontWeight: "700" },
 });
