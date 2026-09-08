@@ -274,7 +274,7 @@ function App() {
         {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(isPublicPatientRegistration ? { name: patientName, email, phone: mobile, password } : { email, password }),
+        body: JSON.stringify(isPublicPatientRegistration ? { name: patientName, phone: mobile, password } : authMode === "patient" ? { phone: mobile, password } : { email, password }),
         },
       );
 

@@ -103,7 +103,7 @@ export function LoginPage({
                   <input value={patientName} onChange={(event) => onPatientNameChange(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 text-[1.05rem] text-[#1d2d2a] focus:outline-none" />
                 </label>
               )}
-              {(
+              {authMode === "clinic_admin" && (
                 <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
                   Email address
                   <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">

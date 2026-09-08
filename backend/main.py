@@ -78,7 +78,8 @@ app.add_middleware(
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    phone: str | None = None
     password: str
 
 
@@ -104,8 +105,7 @@ class PatientCreateRequest(BaseModel):
 
 class PublicPatientRegisterRequest(BaseModel):
     name: str
-    email: EmailStr
-    phone: str | None = None
+    phone: str
     password: str
 
 
@@ -450,6 +450,8 @@ def public_clinic(public_slug: str) -> dict[str, str]:
 
 @app.post("/api/auth/login")
 def login(credentials: LoginRequest) -> dict[str, object]:
+    if not credentials.email and not credentials.phone:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Email or mobile number is required")
     try:
         with psycopg.connect(DATABASE_URL) as connection:
             user = connection.execute(
@@ -463,9 +465,9 @@ def login(credentials: LoginRequest) -> dict[str, object]:
                   LEFT JOIN clinics admin_clinic ON admin_clinic.id = clinic_admins.clinic_id
                   LEFT JOIN patients ON patients.user_id = users.id
                   LEFT JOIN clinics patient_clinic ON patient_clinic.id = patients.clinic_id
-                WHERE users.email = %s AND users.is_active = TRUE
+                WHERE (users.email = %s OR users.phone = %s) AND users.is_active = TRUE
                 """,
-                (credentials.email,),
+                (credentials.email, credentials.phone),
             ).fetchone()
         if user and password_hash.verify(credentials.password, user[1]):
             clinic_id = str(user[3]) if user[3] else None
@@ -475,7 +477,7 @@ def login(credentials: LoginRequest) -> dict[str, object]:
                 "token_type": "bearer",
                 "user": {
                     "id": str(user[0]),
-                    "email": credentials.email,
+                    "email": credentials.email or "",
                     "role": user[2],
                     "clinic_id": clinic_id,
                     "clinic_name": clinic_name,
@@ -484,7 +486,7 @@ def login(credentials: LoginRequest) -> dict[str, object]:
     except psycopg.Error as error:
         raise HTTPException(status_code=503, detail="Authentication database is unavailable") from error
 
-    demo_user = DEMO_USERS.get(credentials.email)
+    demo_user = DEMO_USERS.get(credentials.email or "")
     if demo_user and password_hash.verify(credentials.password, demo_user["password_hash"]):
         clinic = DEMO_CLINICS.get(demo_user["clinic_id"], {})
         role = str(demo_user["role"]).upper()
@@ -493,7 +495,7 @@ def login(credentials: LoginRequest) -> dict[str, object]:
             "token_type": "bearer",
             "user": {
                 "id": demo_user["id"],
-                "email": credentials.email,
+                "email": credentials.email or "",
                 "role": role,
                 "clinic_id": demo_user["clinic_id"],
                 "clinic_name": clinic.get("name", "Clinic Workspace"),
@@ -523,13 +525,15 @@ def register_public_patient(public_slug: str, account: PublicPatientRegisterRequ
             if not role:
                 raise HTTPException(status_code=500, detail="PATIENT role is not configured")
 
+            normalized_phone = "".join(character for character in account.phone if character.isdigit())
+            internal_email = f"patient-{normalized_phone}@thinkare.local"
             user = connection.execute(
                 """
                 INSERT INTO users (id, role_id, first_name, last_name, email, phone, password_hash, is_active, is_verified)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, TRUE)
                 RETURNING id
                 """,
-                (user_id, role[0], first_name, last_name, str(account.email), account.phone or "", password_hash.hash(account.password)),
+                (user_id, role[0], first_name, last_name, internal_email, account.phone, password_hash.hash(account.password)),
             ).fetchone()
             patient = connection.execute(
                 """
@@ -537,7 +541,7 @@ def register_public_patient(public_slug: str, account: PublicPatientRegisterRequ
                 VALUES (%s, %s, %s, %s, %s, 'active')
                 RETURNING id
                 """,
-                (clinic[0], user[0], account.name.strip(), str(account.email), account.phone or ""),
+                (clinic[0], user[0], account.name.strip(), internal_email, account.phone),
             ).fetchone()
             connection.commit()
     except psycopg.errors.UniqueViolation as error:
@@ -548,7 +552,7 @@ def register_public_patient(public_slug: str, account: PublicPatientRegisterRequ
     return {
         "access_token": create_token(str(user[0]), "PATIENT", str(clinic[0])),
         "token_type": "bearer",
-        "user": {"id": str(user[0]), "email": str(account.email), "role": "PATIENT", "clinic_id": str(clinic[0]), "clinic_name": clinic[1]},
+        "user": {"id": str(user[0]), "role": "PATIENT", "clinic_id": str(clinic[0]), "clinic_name": clinic[1]},
         "patient": {"id": str(patient[0]), "name": account.name.strip()},
     }
 
