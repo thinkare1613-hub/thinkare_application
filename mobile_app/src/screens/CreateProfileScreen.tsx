@@ -13,10 +13,9 @@ function dateKey(date: Date) {
 	return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
-export function CreateProfileScreen({ onComplete }: { onComplete: (profile: { name: string; email: string; password: string }) => Promise<void> }) {
+export function CreateProfileScreen({ onComplete }: { onComplete: (profile: { name: string; password: string }) => Promise<void> }) {
 	const today = new Date();
 	const [name, setName] = useState("");
-	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [error, setError] = useState("");
 	const [isSaving, setIsSaving] = useState(false);
@@ -54,9 +53,9 @@ export function CreateProfileScreen({ onComplete }: { onComplete: (profile: { na
 	}
 
 	async function submit() {
-		if (!name.trim() || !email.trim() || !password) { setError("Name, email, and password are required."); return; }
+		if (!name.trim() || !password) { setError("Name and password are required."); return; }
 		setIsSaving(true); setError("");
-		try { await onComplete({ name: name.trim(), email: email.trim(), password }); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Unable to create your account."); setIsSaving(false); }
+		try { await onComplete({ name: name.trim(), password }); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Unable to create your account."); setIsSaving(false); }
 	}
 
 	return (
@@ -68,7 +67,6 @@ export function CreateProfileScreen({ onComplete }: { onComplete: (profile: { na
 			<Pressable accessibilityRole="button" onPress={openCalendar} style={styles.input}>
 				<Text style={birthDate ? styles.inputText : styles.placeholder}>{birthDate ? formatDate(birthDate) : "Date of birth - DD / MM / YYYY"}</Text>
 			</Pressable>
-			<TextInput value={email} onChangeText={setEmail} placeholder="Email" keyboardType="email-address" autoCapitalize="none" style={styles.input} />
 			<TextInput value={password} onChangeText={setPassword} placeholder="Create password" secureTextEntry style={styles.input} />
 			{error ? <Text style={styles.error}>{error}</Text> : null}
 			<View style={styles.spacer} />
