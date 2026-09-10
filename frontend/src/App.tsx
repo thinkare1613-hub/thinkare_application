@@ -189,7 +189,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!accessToken || currentUserRole === "platform_admin") return;
 
     const headers = { Authorization: `Bearer ${accessToken}` };
     const loadClinicData = () => Promise.all([
@@ -225,7 +225,7 @@ function App() {
     void loadClinicData();
     const refreshInterval = window.setInterval(() => void loadClinicData(), 20_000);
     return () => window.clearInterval(refreshInterval);
-  }, [accessToken]);
+  }, [accessToken, currentUserRole]);
 
   const selectedPatient = patientList.find((entry) => entry.name === selectedPatientName) ?? patientList[0];
   const assignedDoctorsForCurrentPatient = doctorList;
