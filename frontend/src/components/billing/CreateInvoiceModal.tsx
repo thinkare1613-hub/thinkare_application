@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { FormEvent } from "react";
 import { Plus, Trash2, X } from "lucide-react";
 import type { BillingInvoicePayload, Invoice, InvoiceStatus } from "./types";
@@ -23,35 +23,19 @@ function formatCurrency(amount: number) {
 }
 
 export function CreateInvoiceModal({ isOpen, onClose, onCreate, editingInvoice }: CreateInvoiceModalProps) {
-  const [patient, setPatient] = useState("");
+  if (!isOpen) return null;
+
+  return <InvoiceForm key={editingInvoice?.id ?? "new"} onClose={onClose} onCreate={onCreate} editingInvoice={editingInvoice} />;
+}
+
+function InvoiceForm({ onClose, onCreate, editingInvoice }: Omit<CreateInvoiceModalProps, "isOpen">) {
+  const [patient, setPatient] = useState(editingInvoice?.patient ?? "");
   const [services, setServices] = useState<Service[]>(defaultServices);
   const [discount, setDiscount] = useState(0);
   const [taxRate, setTaxRate] = useState(10);
-  const [paymentStatus, setPaymentStatus] = useState<InvoiceStatus>("Pending");
-  const [paidAmount, setPaidAmount] = useState(0);
-  const [paymentMethod, setPaymentMethod] = useState("Cash");
-
-  useEffect(() => {
-    if (editingInvoice) {
-      setPatient(editingInvoice.patient);
-      setServices(defaultServices);
-      setDiscount(0);
-      setTaxRate(10);
-      setPaymentStatus(editingInvoice.status);
-      setPaidAmount(editingInvoice.status === "Paid" ? editingInvoice.amount : 0);
-      setPaymentMethod(editingInvoice.method);
-    } else {
-      setPatient("");
-      setServices(defaultServices);
-      setDiscount(0);
-      setTaxRate(10);
-      setPaymentStatus("Pending");
-      setPaidAmount(0);
-      setPaymentMethod("Cash");
-    }
-  }, [editingInvoice, isOpen]);
-
-  if (!isOpen) return null;
+  const [paymentStatus, setPaymentStatus] = useState<InvoiceStatus>(editingInvoice?.status ?? "Pending");
+  const [paidAmount, setPaidAmount] = useState(editingInvoice?.status === "Paid" ? editingInvoice.amount : 0);
+  const [paymentMethod, setPaymentMethod] = useState(editingInvoice?.method ?? "Cash");
 
   const subtotal = services.reduce((sum, service) => sum + service.amount, 0);
   const tax = Math.round(subtotal * (taxRate / 100));
