@@ -16,12 +16,12 @@ export function SuperAdminDashboard({ apiUrl, accessToken, view }: Props) {
   const [selectedClinic, setSelectedClinic] = useState<ClinicDetail | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
-  const headers = { Authorization: `Bearer ${accessToken}` };
 
   useEffect(() => {
     const load = async () => {
       try {
         const endpoints = view === "payments" ? ["/api/admin/payments"] : ["/api/admin/dashboard", "/api/admin/clinics"];
+        const headers = { Authorization: `Bearer ${accessToken}` };
         const responses = await Promise.all(endpoints.map((path) => fetch(`${apiUrl}${path}`, { headers })));
         if (responses.some((response) => !response.ok)) throw new Error("Platform data is not available. Apply migration 006_platform_monitoring.sql and sign in as a Super Admin.");
         const data = await Promise.all(responses.map((response) => response.json()));
@@ -33,6 +33,7 @@ export function SuperAdminDashboard({ apiUrl, accessToken, view }: Props) {
   }, [apiUrl, accessToken, view]);
 
   async function openClinic(clinicId: string) {
+    const headers = { Authorization: `Bearer ${accessToken}` };
     const response = await fetch(`${apiUrl}/api/admin/clinics/${clinicId}`, { headers });
     if (!response.ok) { setError("Unable to load clinic details."); return; }
     setSelectedClinic(await response.json());
@@ -40,6 +41,7 @@ export function SuperAdminDashboard({ apiUrl, accessToken, view }: Props) {
 
   async function setClinicStatus(status: "APPROVED" | "REJECTED" | "SUSPENDED") {
     if (!selectedClinic) return;
+    const headers = { Authorization: `Bearer ${accessToken}` };
     const response = await fetch(`${apiUrl}/api/admin/clinics/${selectedClinic.id}/status`, { method: "PUT", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
     if (!response.ok) { setError("Unable to update clinic status."); return; }
     setSelectedClinic({ ...selectedClinic, status });
