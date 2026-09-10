@@ -78,7 +78,8 @@ app.add_middleware(
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    phone: str | None = None
     password: str
 
 
@@ -94,6 +95,18 @@ class RegisterRequest(LoginRequest):
     first_name: str
     last_name: str | None = None
     phone: str | None = None
+
+
+class PatientCreateRequest(BaseModel):
+    name: str
+    email: EmailStr | None = None
+    phone: str | None = None
+
+
+class PublicPatientRegisterRequest(BaseModel):
+    name: str
+    phone: str
+    password: str
 
 
 class AvailabilityRequest(BaseModel):
@@ -244,6 +257,10 @@ class InvoiceCreateRequest(BaseModel):
     tax: Decimal = Decimal("0")
     status: str = "UNPAID"
     payment_method: str = "CASH"
+
+
+class ClinicStatusRequest(BaseModel):
+    status: str
 
 
 def validate_same_clinic_patient_doctor(patient_id: UUID, doctor_id: UUID, connection) -> None:
@@ -425,28 +442,34 @@ def health() -> dict[str, str]:
 def public_clinic(public_slug: str) -> dict[str, str]:
     with psycopg.connect(DATABASE_URL) as connection:
         clinic = connection.execute(
-            "SELECT name FROM clinics WHERE public_slug = %s AND status = 'APPROVED'",
+            "SELECT id, name FROM clinics WHERE public_slug = %s AND status = 'APPROVED'",
             (public_slug,),
         ).fetchone()
     if not clinic:
         raise HTTPException(status_code=404, detail="Clinic booking page not found")
-    return {"name": clinic[0], "logo_url": "", "address": ""}
+    return {"id": str(clinic[0]), "name": clinic[1], "logo_url": "", "address": ""}
 
 
 @app.post("/api/auth/login")
 def login(credentials: LoginRequest) -> dict[str, object]:
+    if not credentials.email and not credentials.phone:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Email or mobile number is required")
     try:
         with psycopg.connect(DATABASE_URL) as connection:
             user = connection.execute(
                 """
-                SELECT users.id, users.password_hash, roles.name, clinics.id, clinics.name
+                  SELECT users.id, users.password_hash, roles.name,
+                      COALESCE(admin_clinic.id, patient_clinic.id),
+                      COALESCE(admin_clinic.name, patient_clinic.name)
                 FROM users
                 JOIN roles ON roles.id = users.role_id
                 LEFT JOIN clinic_admins ON clinic_admins.user_id = users.id
-                LEFT JOIN clinics ON clinics.id = clinic_admins.clinic_id
-                WHERE users.email = %s AND users.is_active = TRUE
+                  LEFT JOIN clinics admin_clinic ON admin_clinic.id = clinic_admins.clinic_id
+                  LEFT JOIN patients ON patients.user_id = users.id
+                  LEFT JOIN clinics patient_clinic ON patient_clinic.id = patients.clinic_id
+                WHERE (users.email = %s OR users.phone = %s) AND users.is_active = TRUE
                 """,
-                (credentials.email,),
+                (credentials.email, credentials.phone),
             ).fetchone()
         if user and password_hash.verify(credentials.password, user[1]):
             clinic_id = str(user[3]) if user[3] else None
@@ -456,16 +479,16 @@ def login(credentials: LoginRequest) -> dict[str, object]:
                 "token_type": "bearer",
                 "user": {
                     "id": str(user[0]),
-                    "email": credentials.email,
+                    "email": credentials.email or "",
                     "role": user[2],
                     "clinic_id": clinic_id,
                     "clinic_name": clinic_name,
                 },
             }
-    except Exception:
-        pass
+    except psycopg.Error as error:
+        raise HTTPException(status_code=503, detail="Authentication database is unavailable") from error
 
-    demo_user = DEMO_USERS.get(credentials.email)
+    demo_user = DEMO_USERS.get(credentials.email or "")
     if demo_user and password_hash.verify(credentials.password, demo_user["password_hash"]):
         clinic = DEMO_CLINICS.get(demo_user["clinic_id"], {})
         role = str(demo_user["role"]).upper()
@@ -474,7 +497,7 @@ def login(credentials: LoginRequest) -> dict[str, object]:
             "token_type": "bearer",
             "user": {
                 "id": demo_user["id"],
-                "email": credentials.email,
+                "email": credentials.email or "",
                 "role": role,
                 "clinic_id": demo_user["clinic_id"],
                 "clinic_name": clinic.get("name", "Clinic Workspace"),
@@ -482,6 +505,58 @@ def login(credentials: LoginRequest) -> dict[str, object]:
         }
 
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+
+
+@app.post("/api/public/clinics/{public_slug}/patients/register", status_code=status.HTTP_201_CREATED)
+def register_public_patient(public_slug: str, account: PublicPatientRegisterRequest) -> dict[str, object]:
+    user_id = str(uuid4())
+    name_parts = account.name.strip().split(maxsplit=1)
+    first_name = name_parts[0] if name_parts else "Patient"
+    last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+    try:
+        with psycopg.connect(DATABASE_URL) as connection:
+            clinic = connection.execute(
+                "SELECT id, name FROM clinics WHERE public_slug = %s AND status = 'APPROVED'",
+                (public_slug,),
+            ).fetchone()
+            if not clinic:
+                raise HTTPException(status_code=404, detail="Clinic booking page not found")
+
+            role = connection.execute("SELECT id FROM roles WHERE name = 'PATIENT'").fetchone()
+            if not role:
+                raise HTTPException(status_code=500, detail="PATIENT role is not configured")
+
+            normalized_phone = "".join(character for character in account.phone if character.isdigit())
+            internal_email = f"patient-{normalized_phone}@thinkare.local"
+            user = connection.execute(
+                """
+                INSERT INTO users (id, role_id, first_name, last_name, email, phone, password_hash, is_active, is_verified)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, TRUE)
+                RETURNING id
+                """,
+                (user_id, role[0], first_name, last_name, internal_email, account.phone, password_hash.hash(account.password)),
+            ).fetchone()
+            patient = connection.execute(
+                """
+                INSERT INTO patients (clinic_id, user_id, name, email, phone, status)
+                VALUES (%s, %s, %s, %s, %s, 'active')
+                RETURNING id
+                """,
+                (clinic[0], user[0], account.name.strip(), internal_email, account.phone),
+            ).fetchone()
+            connection.commit()
+    except psycopg.errors.UniqueViolation as error:
+        raise HTTPException(status_code=409, detail="An account already uses this email or phone") from error
+    except psycopg.Error as error:
+        raise HTTPException(status_code=503, detail="Patient registration database is unavailable") from error
+
+    return {
+        "access_token": create_token(str(user[0]), "PATIENT", str(clinic[0])),
+        "token_type": "bearer",
+        "user": {"id": str(user[0]), "role": "PATIENT", "clinic_id": str(clinic[0]), "clinic_name": clinic[1]},
+        "patient": {"id": str(patient[0]), "name": account.name.strip()},
+    }
 
 
 @app.post("/api/auth/register-clinic", status_code=status.HTTP_201_CREATED)
@@ -534,33 +609,8 @@ def register_clinic(account: ClinicRegisterRequest) -> dict[str, object]:
             }
     except psycopg.errors.UniqueViolation:
         raise HTTPException(status_code=409, detail="A clinic or admin account already exists for this email")
-    except Exception:
-        pass
-
-    DEMO_CLINICS[clinic_id] = {
-        "id": clinic_id,
-        "name": account.clinic_name,
-        "logo_url": "",
-        "email": str(account.email),
-        "phone": account.phone or "",
-        "address": "",
-        "status": "active",
-    }
-    DEMO_USERS[str(account.email)] = {
-        "id": user_id,
-        "clinic_id": clinic_id,
-        "email": str(account.email),
-        "role": "CLINIC_ADMIN",
-        "password_hash": hashed_password,
-    }
-    return {
-        "id": clinic_id,
-        "clinic_name": account.clinic_name,
-        "admin_name": account.admin_name,
-        "email": str(account.email),
-        "status": "active",
-        "public_slug": public_slug,
-    }
+    except psycopg.Error as error:
+        raise HTTPException(status_code=503, detail="Clinic registration database is unavailable") from error
 
 
 @app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
@@ -597,6 +647,105 @@ def list_users(
             "SELECT users.id, users.email, roles.name FROM users JOIN roles ON roles.id = users.role_id ORDER BY users.created_at DESC"
         ).fetchall()
     return [{"id": str(record[0]), "email": record[1], "role": record[2]} for record in records]
+
+
+@app.get("/api/admin/dashboard")
+def admin_dashboard(_: dict[str, str] = Depends(require_roles("PLATFORM_ADMIN"))) -> dict[str, object]:
+    try:
+        with psycopg.connect(DATABASE_URL) as connection:
+            totals = connection.execute(
+                """
+                SELECT
+                    COUNT(*) AS clinics,
+                    COUNT(*) FILTER (WHERE status IN ('APPROVED', 'ACTIVE', 'active')) AS active_clinics,
+                    COUNT(*) FILTER (WHERE status NOT IN ('APPROVED', 'ACTIVE', 'active')) AS pending_clinics,
+                    (SELECT COUNT(*) FROM patients) AS patients,
+                    (SELECT COALESCE(SUM(amount), 0) FROM subscription_payments WHERE status = 'PAID') AS revenue,
+                    COUNT(*) FILTER (WHERE created_at::date >= date_trunc('month', CURRENT_DATE)::date) AS new_registrations
+                FROM clinics
+                """
+            ).fetchone()
+    except psycopg.Error as error:
+        raise HTTPException(status_code=503, detail="Platform dashboard data is unavailable; apply migration 006_platform_monitoring.sql") from error
+
+    return {
+        "total_clinics": totals[0], "active_clinics": totals[1], "pending_clinics": totals[2],
+        "total_patients": totals[3], "revenue": totals[4], "new_registrations": totals[5],
+    }
+
+
+@app.get("/api/admin/clinics")
+def admin_clinics(_: dict[str, str] = Depends(require_roles("PLATFORM_ADMIN"))) -> list[dict[str, object]]:
+    try:
+        with psycopg.connect(DATABASE_URL) as connection:
+            rows = connection.execute(
+                """
+                SELECT c.id, c.name, c.registration_number, c.status, c.created_at,
+                    COUNT(DISTINCT p.id) AS patient_count,
+                    COALESCE(s.plan, 'BASIC'), COALESCE(s.amount, 0), COALESCE(s.payment_status, 'PENDING')
+                FROM clinics c
+                LEFT JOIN patients p ON p.clinic_id = c.id
+                LEFT JOIN clinic_subscriptions s ON s.clinic_id = c.id
+                GROUP BY c.id, s.plan, s.amount, s.payment_status
+                ORDER BY c.created_at DESC
+                """
+            ).fetchall()
+    except psycopg.Error as error:
+        raise HTTPException(status_code=503, detail="Clinic monitoring data is unavailable; apply migration 006_platform_monitoring.sql") from error
+    return [{"id": str(row[0]), "name": row[1], "registration_number": row[2], "status": row[3], "registered_at": row[4].isoformat(), "patients": row[5], "plan": row[6], "amount": row[7], "payment_status": row[8]} for row in rows]
+
+
+@app.get("/api/admin/clinics/{clinic_id}")
+def admin_clinic_detail(clinic_id: UUID, _: dict[str, str] = Depends(require_roles("PLATFORM_ADMIN"))) -> dict[str, object]:
+    try:
+        with psycopg.connect(DATABASE_URL) as connection:
+            clinic = connection.execute(
+                """
+                SELECT c.id, c.name, c.status, c.registration_number, c.registration_authority, c.email, c.phone,
+                    COALESCE(ca.name, u.first_name || ' ' || COALESCE(u.last_name, '')),
+                    COALESCE(s.plan, 'BASIC'), COALESCE(s.amount, 0), COALESCE(s.payment_status, 'PENDING'), s.started_on, s.renews_on,
+                    (SELECT COUNT(*) FROM patients WHERE clinic_id = c.id),
+                    (SELECT COUNT(*) FROM patients WHERE clinic_id = c.id AND created_at::date >= date_trunc('month', CURRENT_DATE)::date),
+                    (SELECT COUNT(*) FROM patients WHERE clinic_id = c.id AND status = 'active'),
+                    (SELECT COUNT(*) FROM doctors WHERE clinic_id = c.id),
+                    (SELECT COUNT(*) FROM appointments WHERE clinic_id = c.id),
+                    (SELECT COUNT(*) FROM medical_records WHERE clinic_id = c.id)
+                FROM clinics c
+                LEFT JOIN clinic_admins ca ON ca.clinic_id = c.id
+                LEFT JOIN users u ON u.id = ca.user_id
+                LEFT JOIN clinic_subscriptions s ON s.clinic_id = c.id
+                WHERE c.id = %s
+                LIMIT 1
+                """, (clinic_id,)
+            ).fetchone()
+    except psycopg.Error as error:
+        raise HTTPException(status_code=503, detail="Clinic detail data is unavailable; apply migration 006_platform_monitoring.sql") from error
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    return {"id": str(clinic[0]), "name": clinic[1], "status": clinic[2], "registration_number": clinic[3], "registration_authority": clinic[4], "email": clinic[5], "phone": clinic[6], "admin": clinic[7], "subscription": {"plan": clinic[8], "amount": clinic[9], "payment_status": clinic[10], "started_on": str(clinic[11]) if clinic[11] else None, "renews_on": str(clinic[12]) if clinic[12] else None}, "patients": clinic[13], "new_patients_this_month": clinic[14], "active_patients": clinic[15], "inactive_patients": clinic[13] - clinic[15], "doctors": clinic[16], "appointments": clinic[17], "medical_records": clinic[18]}
+
+
+@app.get("/api/admin/payments")
+def admin_payments(_: dict[str, str] = Depends(require_roles("PLATFORM_ADMIN"))) -> list[dict[str, object]]:
+    try:
+        with psycopg.connect(DATABASE_URL) as connection:
+            rows = connection.execute("""SELECT p.id, c.name, p.invoice_number, s.plan, p.amount, p.status, p.provider, p.transaction_reference, p.paid_at FROM subscription_payments p JOIN clinic_subscriptions s ON s.id = p.subscription_id JOIN clinics c ON c.id = s.clinic_id ORDER BY p.created_at DESC""").fetchall()
+    except psycopg.Error as error:
+        raise HTTPException(status_code=503, detail="Subscription payment data is unavailable; apply migration 006_platform_monitoring.sql") from error
+    return [{"id": str(row[0]), "clinic": row[1], "invoice_number": row[2], "plan": row[3], "amount": row[4], "status": row[5], "provider": row[6], "transaction_reference": row[7], "paid_at": row[8].isoformat() if row[8] else None} for row in rows]
+
+
+@app.put("/api/admin/clinics/{clinic_id}/status")
+def update_admin_clinic_status(clinic_id: UUID, update: ClinicStatusRequest, _: dict[str, str] = Depends(require_roles("PLATFORM_ADMIN"))) -> dict[str, str]:
+    normalized_status = update.status.upper()
+    if normalized_status not in {"APPROVED", "ACTIVE", "PENDING", "REJECTED", "SUSPENDED"}:
+        raise HTTPException(status_code=400, detail="Unsupported clinic status")
+    with psycopg.connect(DATABASE_URL) as connection:
+        clinic = connection.execute("UPDATE clinics SET status = %s WHERE id = %s RETURNING id, status", (normalized_status, clinic_id)).fetchone()
+        if not clinic:
+            raise HTTPException(status_code=404, detail="Clinic not found")
+        connection.commit()
+    return {"id": str(clinic[0]), "status": clinic[1]}
 
 
 @app.get("/api/dashboard")
@@ -651,11 +800,14 @@ def current_clinic_profile(user: dict[str, str] = Depends(require_roles("CLINIC_
         with psycopg.connect(DATABASE_URL) as connection:
             record = connection.execute(
                 """
-                SELECT id, name, email, phone, address, logo_url, status
+                                    SELECT clinics.id, clinics.name, clinics.email, clinics.phone, clinics.address, clinics.logo_url, clinics.status, clinics.public_slug,
+                                            COALESCE(CONCAT_WS(' ', admin_users.first_name, admin_users.last_name), '')
                 FROM clinics
-                WHERE id = %s
+                LEFT JOIN clinic_admins ON clinic_admins.clinic_id = clinics.id AND clinic_admins.user_id = %s
+                                LEFT JOIN users admin_users ON admin_users.id = clinic_admins.user_id
+                WHERE clinics.id = %s
                 """,
-                (clinic_id,),
+                (user["id"], clinic_id),
             ).fetchone()
     except psycopg.Error as error:
         raise HTTPException(status_code=503, detail="Clinic profile is unavailable") from error
@@ -672,6 +824,7 @@ def current_clinic_profile(user: dict[str, str] = Depends(require_roles("CLINIC_
             "address": str(fallback["address"]),
             "logo_url": str(fallback.get("logo_url", "")),
             "status": str(fallback["status"]),
+            "admin": "",
         }
 
     return {
@@ -682,6 +835,8 @@ def current_clinic_profile(user: dict[str, str] = Depends(require_roles("CLINIC_
         "address": record[4],
         "logo_url": record[5],
         "status": record[6],
+        "admin": record[8],
+        "public_slug": record[7],
     }
 
 
@@ -690,57 +845,123 @@ def doctors(
     specialty_id: UUID | None = None,
     user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
 ) -> list[dict[str, object]]:
+    if user["clinic_id"] in DEMO_CLINICS:
+        return [
+            _doctor_response(record)
+            for record in app.state.doctor_store
+            if str(record.get("clinic_id")) == str(user["clinic_id"])
+        ]
+
     with psycopg.connect(DATABASE_URL) as connection:
+        records = connection.execute(
+            """
+            SELECT doctors.id, CONCAT_WS(' ', users.first_name, users.last_name), users.email, users.phone,
+                   doctors.qualification, doctors.experience_years, doctors.consultation_fee, doctors.clinic_id
+            FROM doctors JOIN users ON users.id = doctors.user_id
+            WHERE doctors.clinic_id = %s AND doctors.is_active = TRUE
+            ORDER BY users.first_name, users.last_name
+            """, (user["clinic_id"],)
+        ).fetchall()
+    return [{"id": str(row[0]), "name": row[1], "email": row[2], "phone": row[3], "qualification": row[4] or "", "experience_years": row[5] or 0, "consultation_fee": row[6] or 0, "clinic_id": str(row[7])} for row in records]
+
+
+@app.get("/api/patients")
+def patients(
+    user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
+) -> list[dict[str, object]]:
+    if user["role"] == "PATIENT":
+        return []
+
+    with psycopg.connect(DATABASE_URL) as connection:
+        rows = connection.execute(
+            """
+            SELECT patients.id, COALESCE(patients.name, CONCAT_WS(' ', users.first_name, users.last_name)),
+                   COALESCE(patients.email, users.email), COALESCE(patients.phone, users.phone),
+                   MAX(appointments.appointment_date)
+            FROM patients
+            LEFT JOIN users ON users.id = patients.user_id
+            LEFT JOIN appointments ON appointments.patient_id = patients.id
+            WHERE patients.clinic_id = %s
+            GROUP BY patients.id, patients.name, patients.email, patients.phone, users.first_name, users.last_name, users.email, users.phone
+            ORDER BY patients.created_at DESC
+            """,
+            (user["clinic_id"],),
+        ).fetchall()
+    return [
+        {
+            "id": str(row[0]),
+            "name": row[1] or "Unnamed patient",
+            "email": row[2] or "",
+            "phone": row[3] or "",
+            "last_visit": str(row[4]) if row[4] else "No visits yet",
+            "clinic_id": str(user["clinic_id"]),
+        }
+        for row in rows
+    ]
+
+
+@app.post("/api/patients", status_code=status.HTTP_201_CREATED)
+def create_patient(
+    payload: PatientCreateRequest,
+    user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN")),
+) -> dict[str, object]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        record = connection.execute(
+            """
+            INSERT INTO patients (clinic_id, name, email, phone)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id, name, email, phone
+            """,
+            (user["clinic_id"], payload.name.strip(), str(payload.email) if payload.email else None, payload.phone),
+        ).fetchone()
+        connection.commit()
+    return {
+        "id": str(record[0]), "name": record[1], "email": record[2] or "", "phone": record[3] or "",
+        "last_visit": "No visits yet", "clinic_id": str(user["clinic_id"]),
+    }
+
+
+@app.get("/api/appointments")
+def appointments(
+    user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
+) -> list[dict[str, object]]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        query = """
+            SELECT appointments.id, appointments.appointment_date, appointments.start_time, appointments.status,
+                   COALESCE(patients.name, CONCAT_WS(' ', patient_users.first_name, patient_users.last_name)),
+                   CONCAT_WS(' ', doctor_users.first_name, doctor_users.last_name),
+                   COALESCE(appointments.reason, 'Consultation')
+            FROM appointments
+            JOIN patients ON patients.id = appointments.patient_id
+            LEFT JOIN users patient_users ON patient_users.id = patients.user_id
+            JOIN doctors ON doctors.id = appointments.doctor_id
+            LEFT JOIN users doctor_users ON doctor_users.id = doctors.user_id
+            WHERE appointments.clinic_id = %s
+        """
+        params: list[object] = [user["clinic_id"]]
         if user["role"] == "PATIENT":
             patient = connection.execute(
-                "SELECT id, clinic_id FROM patients WHERE user_id = %s",
-                (user["id"],),
+                "SELECT id FROM patients WHERE user_id = %s AND clinic_id = %s",
+                (user["id"], user["clinic_id"]),
             ).fetchone()
             if not patient:
                 return []
-            doctor_records = connection.execute(
-                """
-                SELECT DISTINCT a.doctor_id
-                FROM appointments a
-                WHERE a.patient_id = %s AND a.clinic_id = %s
-                ORDER BY a.appointment_date DESC, a.start_time DESC
-                """,
-                (patient[0], str(patient[1])),
-            ).fetchall()
-            if not doctor_records:
-                return []
-            doctor_ids = [row[0] for row in doctor_records]
-            placeholders = ", ".join(["%s"] * len(doctor_ids))
-            query = f"""
-                SELECT DISTINCT doctors.id, users.first_name, users.last_name, doctors.qualification,
-                       doctors.experience_years, doctors.consultation_fee
-                FROM doctors JOIN users ON users.id = doctors.user_id
-                LEFT JOIN doctor_specialties ON doctor_specialties.doctor_id = doctors.id
-                WHERE doctors.is_active = TRUE
-                  AND doctors.id IN ({placeholders})
-                  AND (%s IS NULL OR doctor_specialties.specialty_id = %s)
-                ORDER BY users.first_name, users.last_name
-            """
-            params: list[object] = [*doctor_ids, specialty_id, specialty_id]
-            records = connection.execute(query, tuple(params)).fetchall()
-            return [{"id": str(row[0]), "name": f"{row[1]} {row[2] or ''}".strip(), "qualification": row[3], "experience_years": row[4], "consultation_fee": row[5]} for row in records]
-
-        query = """
-            SELECT DISTINCT doctors.id, users.first_name, users.last_name, doctors.qualification,
-                   doctors.experience_years, doctors.consultation_fee
-            FROM doctors JOIN users ON users.id = doctors.user_id
-            LEFT JOIN doctor_specialties ON doctor_specialties.doctor_id = doctors.id
-            WHERE doctors.is_active = TRUE AND (%s IS NULL OR doctor_specialties.specialty_id = %s)
-        """
-        params: list[object] = [specialty_id, specialty_id]
-        scope_sql, scope_params = clinic_scope_clause(user)
-        if scope_sql:
-            query += scope_sql
-            params.extend(scope_params)
-        query += " ORDER BY users.first_name, users.last_name "
-
-        records = connection.execute(query, tuple(params)).fetchall()
-    return [{"id": str(row[0]), "name": f"{row[1]} {row[2] or ''}".strip(), "qualification": row[3], "experience_years": row[4], "consultation_fee": row[5]} for row in records]
+            query += " AND appointments.patient_id = %s"
+            params.append(patient[0])
+        query += " ORDER BY appointments.appointment_date DESC, appointments.start_time DESC"
+        rows = connection.execute(query, tuple(params)).fetchall()
+    return [
+        {
+            "id": str(row[0]),
+            "date": str(row[1]),
+            "time": str(row[2]),
+            "status": str(row[3]).replace("_", " ").title(),
+            "patient": row[4] or "Unnamed patient",
+            "doctor": row[5] or "Unassigned doctor",
+            "service": row[6],
+        }
+        for row in rows
+    ]
 
 
 def _doctor_response(record: dict[str, object]) -> dict[str, object]:
@@ -809,32 +1030,16 @@ def create_doctor(
     if not doctor_name:
         raise HTTPException(status_code=400, detail="Doctor name is required")
 
-    doctor_id = str(payload.get("id") or f"doc-{uuid4().hex[:8]}")
-    doctor_record = {
-        "id": doctor_id,
-        "name": doctor_name,
-        "email": str(payload.get("email") or f"{doctor_name.lower().replace(' ', '.')}@clinic.com"),
-        "phone": str(payload.get("phone") or "+91 90000 00000"),
-        "specialization": str(payload.get("specialization") or payload.get("specialty") or "General Medicine"),
-        "qualification": str(payload.get("qualification") or ""),
-        "license_number": str(payload.get("license_number") or ""),
-        "experience": str(payload.get("experience") or payload.get("experience_years") or "5 years"),
-        "profile_photo": str(payload.get("profile_photo") or doctor_name[:2].upper()),
-        "consultation_fee": payload.get("consultation_fee") if payload.get("consultation_fee") is not None else 800,
-        "status": str(payload.get("status") or "Available"),
-        "availability": str(payload.get("availability") or "Available today"),
-        "rating": float(payload.get("rating") if payload.get("rating") is not None else 4.8),
-        "clinic_id": clinic_id,
-    }
-
-    store = app.state.doctor_store
-    existing = next((entry for entry in store if entry.get("id") == doctor_id), None)
-    if existing:
-        existing.update(doctor_record)
-    else:
-        store.append(doctor_record)
-
-    return _doctor_response(doctor_record)
+    name_parts = doctor_name.split(maxsplit=1)
+    with psycopg.connect(DATABASE_URL) as connection:
+        role = connection.execute("SELECT id FROM roles WHERE name = 'DOCTOR'").fetchone()
+        if not role:
+            raise HTTPException(status_code=500, detail="DOCTOR role is not configured")
+        email = str(payload.get("email") or f"doctor-{uuid4().hex[:8]}@clinic.local")
+        doctor_user = connection.execute("""INSERT INTO users (id, role_id, first_name, last_name, email, phone, password_hash, is_active, is_verified) VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, TRUE) RETURNING id""", (str(uuid4()), role[0], name_parts[0], name_parts[1] if len(name_parts) > 1 else "", email, str(payload.get("phone") or ""), password_hash.hash(uuid4().hex))).fetchone()
+        record = connection.execute("""INSERT INTO doctors (user_id, clinic_id, license_number, qualification, experience_years, consultation_fee, is_active) VALUES (%s, %s, %s, %s, %s, %s, TRUE) RETURNING id""", (doctor_user[0], clinic_id, str(payload.get("license_number") or ""), str(payload.get("qualification") or ""), Decimal(str(payload.get("experience") or 0).split()[0]), Decimal(str(payload.get("consultation_fee") or 0)))).fetchone()
+        connection.commit()
+    return {"id": str(record[0]), "name": doctor_name, "email": email, "phone": str(payload.get("phone") or ""), "qualification": str(payload.get("qualification") or ""), "clinic_id": clinic_id}
 
 
 @app.get("/api/doctors/{doctor_id}")
@@ -1065,6 +1270,29 @@ def create_invoice(
         record = connection.execute("""INSERT INTO invoices (clinic_id, patient_id, appointment_id, invoice_number, subtotal, discount, tax, total, status, payment_method) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""", (user["clinic_id"], invoice.patient_id, invoice.appointment_id, number, invoice.subtotal, invoice.discount, invoice.tax, total, invoice.status, invoice.payment_method)).fetchone()
         connection.commit()
     return {"id": str(record[0]), "invoice_number": number, "total": total, "status": invoice.status}
+
+
+@app.put("/api/invoices/{invoice_id}")
+def update_invoice(invoice_id: UUID, invoice: InvoiceCreateRequest, user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN"))) -> dict[str, object]:
+    if invoice.status not in {"UNPAID", "PARTIALLY_PAID", "PAID", "OVERDUE", "CANCELLED"}:
+        raise HTTPException(status_code=400, detail="Unsupported invoice status")
+    total = invoice.subtotal - invoice.discount + invoice.tax
+    with psycopg.connect(DATABASE_URL) as connection:
+        record = connection.execute("UPDATE invoices SET patient_id = %s, appointment_id = %s, subtotal = %s, discount = %s, tax = %s, total = %s, status = %s, payment_method = %s WHERE id = %s AND clinic_id = %s RETURNING id, invoice_number", (invoice.patient_id, invoice.appointment_id, invoice.subtotal, invoice.discount, invoice.tax, total, invoice.status, invoice.payment_method, invoice_id, user["clinic_id"])).fetchone()
+        if not record:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        connection.commit()
+    return {"id": str(record[0]), "invoice_number": record[1], "total": total, "status": invoice.status}
+
+
+@app.delete("/api/invoices/{invoice_id}")
+def delete_invoice(invoice_id: UUID, user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN"))) -> dict[str, str]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        record = connection.execute("DELETE FROM invoices WHERE id = %s AND clinic_id = %s RETURNING id", (invoice_id, user["clinic_id"])).fetchone()
+        if not record:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+        connection.commit()
+    return {"message": "Invoice deleted successfully"}
 
 
 @app.get("/api/notifications")
