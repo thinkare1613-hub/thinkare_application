@@ -9,6 +9,8 @@ SUPER_ADMIN_EMAIL = os.environ["SUPER_ADMIN_EMAIL"]
 SUPER_ADMIN_PASSWORD = os.environ["SUPER_ADMIN_PASSWORD"]
 SUPER_ADMIN_NAME = os.getenv("SUPER_ADMIN_NAME", "Thinkare Super Admin")
 
+# admin password 
+
 password_hash = PasswordHash.recommended()
 name_parts = SUPER_ADMIN_NAME.strip().split(maxsplit=1)
 first_name = name_parts[0] if name_parts else "Thinkare"
