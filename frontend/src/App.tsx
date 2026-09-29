@@ -70,7 +70,7 @@ const pageMeta: Record<Exclude<Screen, "login" | "register">, { title: string; s
   profile: { title: "Profile", subtitle: "Manage your personal details and preferences." },
 };
 
-const apiUrl = import.meta.env.VITE_API_URL ?? "http://192.168.29.157:8000";
+const apiUrl = import.meta.env.VITE_API_URL ?? "https://thinkare-application.onrender.com";
 const publicAppUrl = (import.meta.env.VITE_PUBLIC_APP_URL ?? window.location.origin).replace(/\/$/, "");
 
 type ClinicProfile = {
