@@ -7,6 +7,7 @@ import { TimeSlotSelector } from "./TimeSlotSelector";
 type AppointmentFormProps = {
   patients: { id: string; name: string }[];
   doctors: { id: string; name: string }[];
+  timeSlots?: string[];
   form: {
     patient: string;
     doctor: string;
@@ -18,7 +19,7 @@ type AppointmentFormProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 };
 
-export function AppointmentForm({ patients, doctors, form, onChange, onSubmit }: AppointmentFormProps) {
+export function AppointmentForm({ patients, doctors, timeSlots, form, onChange, onSubmit }: AppointmentFormProps) {
   return (
     <form
       onSubmit={onSubmit}
@@ -60,6 +61,7 @@ export function AppointmentForm({ patients, doctors, form, onChange, onSubmit }:
         <TimeSlotSelector
           value={form.time}
           onChange={(value) => onChange("time", value)}
+          slots={timeSlots}
         />
       </div>
 
