@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { BadgeCheck, Bell, CalendarDays, Check, CreditCard, LayoutGrid, Sparkles, Stethoscope, Users } from "lucide-react";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
@@ -11,8 +12,9 @@ import { MedicalRecordsPage } from "./components/medical-records/MedicalRecordsP
 import { AppointmentForm } from "./components/appointments/AppointmentForm";
 import { BillingPage } from "./components/billing/BillingPage";
 import { SuperAdminDashboard } from "./components/SuperAdminDashboard";
+import { ShowcasePage } from "./components/ShowcasePage";
 
-type Screen = "login" | "register" | "dashboard" | "payments" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
+type Screen = "login" | "register" | "showcase" | "dashboard" | "payments" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
 type AuthMode = "clinic_admin" | "patient";
 type UserRole = "clinic_admin" | "platform_admin" | "doctor" | "patient";
 
@@ -52,9 +54,24 @@ type Patient = {
   clinicId?: string;
 };
 
-const quickActions = ["+ New appointment", "Patients", "Doctors", "Schedule"];
+type AIContext = {
+  screen: Screen;
+  role: UserRole;
+  clinicId: string;
+  summary: string;
+  signals: string[];
+  suggestedActions: string[];
+  confidence: "low" | "medium" | "high";
+  requiresApproval: boolean;
+  recommendedDoctorName?: string;
+  recommendedDoctorId?: string;
+  recommendedDate?: string;
+  patientName?: string;
+  rankedDoctors?: Array<{ id: string; name: string; workload: number; patientHistory: number; score: number }>;
+};
 
 const pageMeta: Record<Exclude<Screen, "login" | "register">, { title: string; subtitle: string }> = {
+  showcase: { title: "Showcase", subtitle: "A guided view of the AI-native experience across roles and devices." },
   dashboard: { title: "Dashboard", subtitle: "Overview of patient flow and clinic performance." },
   payments: { title: "Payments", subtitle: "Subscription payment monitoring across clinics." },
   care_team: { title: "My Doctor / Care Team", subtitle: "View your assigned clinician and care team." },
@@ -70,8 +87,16 @@ const pageMeta: Record<Exclude<Screen, "login" | "register">, { title: string; s
   profile: { title: "Profile", subtitle: "Manage your personal details and preferences." },
 };
 
-const apiUrl = import.meta.env.VITE_API_URL ?? "https://thinkare-application.onrender.com";
-const publicAppUrl = (import.meta.env.VITE_PUBLIC_APP_URL ?? window.location.origin).replace(/\/$/, "");
+const currentHostUrl = `${window.location.protocol}//${window.location.hostname}`;
+const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(window.location.hostname);
+const configuredApiUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
+const productionApiUrl = "https://thinkare-application-1.onrender.com";
+const apiUrl = configuredApiUrl && (!window.location.protocol.startsWith("https:") || !configuredApiUrl.startsWith("http://"))
+  ? configuredApiUrl
+  : isLocalHost
+    ? `${currentHostUrl}:8000`
+    : productionApiUrl;
+const publicAppUrl = (import.meta.env.VITE_PUBLIC_APP_URL ?? `${currentHostUrl}:5173`).replace(/\/$/, "");
 
 type ClinicProfile = {
   id: string;
@@ -95,6 +120,41 @@ const emptyClinicProfile: ClinicProfile = {
   publicSlug: "",
 };
 
+type StoredSession = {
+  accessToken: string;
+  currentUserRole: UserRole;
+  authMode: AuthMode;
+  clinicProfile: ClinicProfile;
+  screen: Screen;
+};
+
+const sessionStorageKey = "thinkare.web.session";
+const currentClinicSlug = window.location.pathname.match(/^\/clinic\/([^/]+)$/)?.[1] ?? "";
+
+function readStoredSession(): StoredSession | null {
+  try {
+    const rawSession = window.localStorage.getItem(sessionStorageKey);
+    if (!rawSession) return null;
+    const parsed = JSON.parse(rawSession) as Partial<StoredSession>;
+    if (!parsed.accessToken || !parsed.currentUserRole || !parsed.authMode || !parsed.clinicProfile) return null;
+    return {
+      accessToken: String(parsed.accessToken),
+      currentUserRole: parsed.currentUserRole as UserRole,
+      authMode: parsed.authMode as AuthMode,
+      clinicProfile: parsed.clinicProfile as ClinicProfile,
+      screen: parsed.screen as Screen || "dashboard",
+    };
+  } catch {
+    return null;
+  }
+}
+
+const storedSession = readStoredSession();
+const canReuseStoredSession = Boolean(
+  storedSession?.accessToken && (!currentClinicSlug || storedSession.clinicProfile.publicSlug === currentClinicSlug),
+);
+const initialScreen: Screen = canReuseStoredSession ? (storedSession?.screen && storedSession.screen !== "login" && storedSession.screen !== "register" ? storedSession.screen : "dashboard") : "login";
+
 function statusClasses(status: Appointment["status"]) {
   switch (status) {
     case "Confirmed":
@@ -113,24 +173,26 @@ function statusClasses(status: Appointment["status"]) {
 }
 
 function App() {
-  const [screen, setScreen] = useState<Screen>("login");
-  const [authMode, setAuthMode] = useState<AuthMode>("clinic_admin");
-  const [currentUserRole, setCurrentUserRole] = useState<UserRole>("clinic_admin");
+  const [screen, setScreen] = useState<Screen>(initialScreen);
+  const [authMode, setAuthMode] = useState<AuthMode>(canReuseStoredSession ? storedSession!.authMode : currentClinicSlug ? "patient" : "clinic_admin");
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>(canReuseStoredSession ? storedSession!.currentUserRole : "clinic_admin");
   const [email, setEmail] = useState("");
   const [mobile, setMobile] = useState("");
   const [password, setPassword] = useState("");
   const [patientName, setPatientName] = useState("");
-  const [isPatientRegistration, setIsPatientRegistration] = useState(false);
+  const [isPatientRegistration, setIsPatientRegistration] = useState(Boolean(currentClinicSlug));
   const [clinicName, setClinicName] = useState("");
   const [adminName, setAdminName] = useState("");
   const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
-  const [clinicProfile, setClinicProfile] = useState<ClinicProfile>(emptyClinicProfile);
-  const [accessToken, setAccessToken] = useState("");
+  const [clinicProfile, setClinicProfile] = useState<ClinicProfile>(canReuseStoredSession ? storedSession!.clinicProfile : emptyClinicProfile);
+  const [accessToken, setAccessToken] = useState(canReuseStoredSession ? storedSession!.accessToken : "");
+  const [aiContext, setAiContext] = useState<AIContext | null>(null);
   const [doctorList, setDoctorList] = useState<Doctor[]>([]);
   const [patientList, setPatientList] = useState<Patient[]>([]);
   const [selectedPatientName, setSelectedPatientName] = useState("");
   const [schedule, setSchedule] = useState<Appointment[]>([]);
+  const [availableSlotOptions, setAvailableSlotOptions] = useState<string[]>([]);
   const [bookingForm, setBookingForm] = useState({
     patient: "",
     doctor: "",
@@ -166,6 +228,7 @@ function App() {
   useEffect(() => {
     const clinicSlug = window.location.pathname.match(/^\/clinic\/([^/]+)$/)?.[1];
     if (!clinicSlug) return;
+    if (canReuseStoredSession) return;
 
     fetch(`${apiUrl}/api/public/clinics/${encodeURIComponent(clinicSlug)}`)
       .then(async (response) => {
@@ -182,11 +245,58 @@ function App() {
           publicSlug: clinicSlug,
         }));
         setAuthMode("patient");
+        setIsPatientRegistration(true);
         setScreen("login");
         setMessage(`Welcome to ${clinic.name}. Sign in with your mobile number to book an appointment.`);
       })
       .catch((error: Error) => setMessage(error.message));
   }, []);
+
+  useEffect(() => {
+    if (!accessToken) {
+      window.localStorage.removeItem(sessionStorageKey);
+      return;
+    }
+
+    window.localStorage.setItem(
+      sessionStorageKey,
+      JSON.stringify({ accessToken, currentUserRole, authMode, clinicProfile, screen }),
+    );
+  }, [accessToken, currentUserRole, authMode, clinicProfile, screen]);
+
+  const selectedPatient = patientList.find((entry) => entry.name === selectedPatientName) ?? patientList[0];
+  const assignedDoctorsForCurrentPatient = doctorList;
+
+  const eligibleDoctors = useMemo(() => {
+    if (!selectedPatient) {
+      return doctorList;
+    }
+
+    if (currentUserRole === "patient") {
+      return assignedDoctorsForCurrentPatient;
+    }
+
+    return doctorList.filter((doctor) => doctor.clinicId === selectedPatient.clinicId || !doctor.clinicId || !selectedPatient.clinicId);
+  }, [assignedDoctorsForCurrentPatient, currentUserRole, doctorList, selectedPatient]);
+
+  const visiblePatients = useMemo(() => {
+    return patientList;
+  }, [patientList]);
+
+  const selectedBookingDoctor = useMemo(
+    () => doctorList.find((doctor) => doctor.name === bookingForm.doctor) ?? null,
+    [bookingForm.doctor, doctorList],
+  );
+
+  const recommendedPatient = useMemo(() => {
+    if (!visiblePatients.length) return null;
+    return visiblePatients.find((patient) => !schedule.some((item) => item.patient === patient.name)) ?? visiblePatients[0];
+  }, [schedule, visiblePatients]);
+
+  const appointmentContextPatientName = bookingForm.patient || selectedPatientName || recommendedPatient?.name || "";
+  const appointmentAiDoctorName = aiContext?.recommendedDoctorName || eligibleDoctors[0]?.name || doctorList[0]?.name || "";
+  const appointmentAiDate = aiContext?.recommendedDate || bookingForm.date || new Date().toISOString().slice(0, 10);
+  const appointmentAiSlot = availableSlotOptions[0] || bookingForm.time || "";
 
   useEffect(() => {
     if (!accessToken || currentUserRole === "platform_admin") return;
@@ -227,24 +337,98 @@ function App() {
     return () => window.clearInterval(refreshInterval);
   }, [accessToken, currentUserRole]);
 
-  const selectedPatient = patientList.find((entry) => entry.name === selectedPatientName) ?? patientList[0];
-  const assignedDoctorsForCurrentPatient = doctorList;
-
-  const eligibleDoctors = useMemo(() => {
-    if (!selectedPatient) {
-      return doctorList;
+  useEffect(() => {
+    if (!accessToken || currentUserRole === "platform_admin" || screen === "login" || screen === "register") {
+      setAiContext(null);
+      return;
     }
 
-    if (currentUserRole === "patient") {
-      return assignedDoctorsForCurrentPatient;
+    const controller = new AbortController();
+    const aiContextUrl = new URL(`${apiUrl}/api/ai/context`);
+    aiContextUrl.searchParams.set("screen", screen);
+    if (screen === "appointments" && appointmentContextPatientName) {
+      aiContextUrl.searchParams.set("patient_name", appointmentContextPatientName);
     }
 
-    return doctorList.filter((doctor) => doctor.clinicId === selectedPatient.clinicId || !doctor.clinicId || !selectedPatient.clinicId);
-  }, [assignedDoctorsForCurrentPatient, currentUserRole, doctorList, selectedPatient]);
+    fetch(aiContextUrl.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("AI context unavailable");
+        }
+        return response.json();
+      })
+      .then((context: Record<string, unknown>) => {
+        const recommendedDoctor = context.recommended_doctor as Record<string, unknown> | null | undefined;
+        setAiContext({
+          screen: String(context.screen ?? screen) as Screen,
+          role: String(context.role ?? currentUserRole) as UserRole,
+          clinicId: String(context.clinic_id ?? clinicProfile.id ?? ""),
+          summary: String(context.summary ?? ""),
+          signals: Array.isArray(context.signals) ? context.signals.map((signal) => String(signal)) : [],
+          suggestedActions: Array.isArray(context.suggested_actions)
+            ? context.suggested_actions.map((action) => String(action))
+            : [],
+          confidence: String(context.confidence ?? "medium") as AIContext["confidence"],
+          requiresApproval: Boolean(context.requires_approval),
+          recommendedDoctorName: String(recommendedDoctor?.name ?? ""),
+          recommendedDoctorId: String(recommendedDoctor?.id ?? ""),
+          recommendedDate: String(context.recommended_date ?? ""),
+          patientName: String(context.patient_name ?? ""),
+          rankedDoctors: Array.isArray(context.ranked_doctors)
+            ? context.ranked_doctors.map((doctor) => ({
+                id: String(doctor.id ?? ""),
+                name: String(doctor.name ?? ""),
+                workload: Number(doctor.workload ?? 0),
+                patientHistory: Number(doctor.patient_history ?? 0),
+                score: Number(doctor.score ?? 0),
+              }))
+            : [],
+        });
+      })
+      .catch(() => setAiContext(null));
 
-  const visiblePatients = useMemo(() => {
-    return patientList;
-  }, [patientList]);
+    return () => controller.abort();
+  }, [accessToken, appointmentContextPatientName, currentUserRole, screen]);
+
+  useEffect(() => {
+    if (screen !== "appointments" || currentUserRole === "patient" || !accessToken || !selectedBookingDoctor?.id || !bookingForm.date) {
+      setAvailableSlotOptions([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    fetch(
+      `${apiUrl}/api/slots?doctor_id=${encodeURIComponent(selectedBookingDoctor.id)}&slot_date=${encodeURIComponent(bookingForm.date)}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: controller.signal,
+      },
+    )
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Unable to load available slots.");
+        }
+
+        return response.json();
+      })
+      .then((slots: Array<{ start_time?: string }>) => {
+        const options = slots.map((slot) => String(slot.start_time ?? "")).filter(Boolean);
+        setAvailableSlotOptions(options);
+        setBookingForm((current) =>
+          options.length && !options.includes(current.time)
+            ? { ...current, time: options[0] }
+            : current,
+        );
+      })
+      .catch(() => {
+        setAvailableSlotOptions([]);
+      });
+
+    return () => controller.abort();
+  }, [accessToken, apiUrl, bookingForm.date, currentUserRole, screen, selectedBookingDoctor?.id]);
 
   function resetRegistrationForm() {
     setClinicName("");
@@ -257,32 +441,202 @@ function App() {
   function handleSignOut() {
     setCurrentUserRole("clinic_admin");
     setAccessToken("");
+    setAiContext(null);
+    setClinicProfile(emptyClinicProfile);
     setMobile("");
+    setAuthMode("clinic_admin");
     setScreen("login");
     setMessage("You have been signed out.");
+  }
+
+  function renderAiPanel(context: AIContext | null) {
+    if (!context || context.role === "platform_admin") {
+      return null;
+    }
+
+    const firstAction = context.suggestedActions?.[0];
+    const quickActions = context.suggestedActions?.slice(0, 3) ?? [];
+    const screenFocus =
+      context.screen === "appointments"
+        ? {
+            title: "Scheduling intelligence",
+            note: "Review conflicts, pending bookings, and approval steps before confirming any change.",
+            cards: ["Conflict check enabled", "Pending bookings visible", "Approval required before rescheduling"],
+          }
+        : context.screen === "patients"
+          ? {
+              title: "Patient intelligence",
+              note: "Surface overdue follow-ups, recent visits, and clinic-scoped profile context before contacting the patient.",
+              cards: ["Follow-up queue ready", "Recent activity summarized", "Profile context preserved"],
+            }
+          : null;
+
+    const actionLabel = context.screen === "appointments"
+      ? "Use ranked doctor/date"
+      : context.screen === "patients"
+        ? "Open recommended patient"
+        : "Review recommendation";
+
+    const actionHandler = () => {
+      if (context.screen === "appointments" && recommendedPatient) {
+        const recommendedDoctorName = context.recommendedDoctorName || eligibleDoctors[0]?.name || "";
+        setBookingForm((current) => ({
+          ...current,
+          patient: recommendedPatient.name,
+          doctor: recommendedDoctorName || current.doctor,
+          date: context.recommendedDate || current.date,
+          time: "",
+          service: current.service || "Consultation",
+        }));
+        setSelectedPatientName(recommendedPatient.name);
+        setScreen("appointments");
+        setMessage(
+          context.recommendedDoctorName && context.recommendedDate
+            ? `AI ranked ${context.recommendedDoctorName} for ${context.recommendedDate}.`
+            : `AI preloaded ${recommendedPatient.name} for the next booking.`,
+        );
+        return;
+      }
+
+      if (context.screen === "patients" && recommendedPatient) {
+        setSelectedPatientName(recommendedPatient.name);
+        setScreen("patients");
+        setMessage(`AI opened ${recommendedPatient.name} for a quick review.`);
+        return;
+      }
+
+      setMessage(context.summary);
+    };
+
+    return (
+      <section className="mx-auto max-w-7xl px-5 pt-6">
+        <div className="rounded-3xl border border-[#bfd7cd] bg-[linear-gradient(135deg,#f6fbf8_0%,#edf8f3_100%)] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)] sm:p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">AI-native clinic workspace</p>
+              <h3 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-[#17362c]">AI-native clinic assistant that keeps patient care moving</h3>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-[#587068]">
+                {context.summary || "One AI layer for appointments, follow-ups, and care tasks so staff can act faster without losing control."}
+              </p>
+            </div>
+            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${context.requiresApproval ? "bg-[#fff7e9] text-[#8a5e00]" : "bg-[#eaf5ef] text-[#0d523e]"}`}>
+              {context.requiresApproval ? "Approval required" : "Suggestion only"}
+            </span>
+          </div>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="rounded-2xl border border-[#dfe9e1] bg-white p-4">
+              <p className="text-xs font-bold uppercase tracking-[.12em] text-[#19b3a2]">What the assistant sees</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {context.signals.slice(0, 3).map((signal) => (
+                  <span key={signal} className="rounded-full bg-[#f5faf7] px-3 py-1 text-xs font-medium text-[#17362c]">
+                    {signal}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-3 text-sm leading-6 text-[#587068]">
+                Context is assembled from the current screen, clinic data, and live availability, then turned into a reviewable next step.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-[#dfe9e1] bg-white p-4">
+              <p className="text-xs font-bold uppercase tracking-[.12em] text-[#19b3a2]">Suggested actions</p>
+              <div className="mt-3 grid gap-2">
+                {quickActions.map((action) => (
+                  <button
+                    key={action}
+                    type="button"
+                    onClick={() => setMessage(action)}
+                    className="rounded-xl border border-[#dfe9e1] bg-[#f8fbf9] px-3 py-2 text-left text-sm font-medium text-[#17362c] hover:border-[#19b3a2]"
+                  >
+                    {action}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-[#dfe9e1] bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[.12em] text-[#19b3a2]">Next best action</p>
+              <p className="mt-1 text-sm text-[#587068]">Preload the most relevant patient, doctor, or appointment step in one tap.</p>
+            </div>
+            <button type="button" onClick={actionHandler} className="rounded-xl bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#149d92]">
+              {actionLabel}
+            </button>
+          </div>
+
+          {screenFocus && (
+            <div className="mt-5 rounded-2xl border border-[#dfe9e1] bg-white p-4">
+              <p className="text-xs font-bold uppercase tracking-[.12em] text-[#19b3a2]">{screenFocus.title}</p>
+              <p className="mt-2 text-sm text-[#587068]">{screenFocus.note}</p>
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                {screenFocus.cards.map((card) => (
+                  <div key={card} className="rounded-xl bg-[#f5faf7] px-3 py-2 text-sm font-medium text-[#17362c]">
+                    {card}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {context.requiresApproval && firstAction && (
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-[#587068]">The first recommendation is ready for review before any action is taken.</p>
+              <button
+                type="button"
+                onClick={async () => {
+                  const response = await fetch(`${apiUrl}/api/ai/approve-action`, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${accessToken}`,
+                    },
+                    body: JSON.stringify({ screen: context.screen, action: firstAction, approved: true }),
+                  });
+
+                  if (!response.ok) {
+                    throw new Error("Unable to record AI approval");
+                  }
+
+                  setMessage(`AI suggestion approved: ${firstAction}`);
+                }}
+                className="rounded-xl bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#149d92]"
+              >
+                Review recommendation
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+    );
   }
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     try {
-      const isPublicPatientRegistration = authMode === "patient" && isPatientRegistration && clinicProfile.publicSlug;
+      const normalizedPhone = mobile.trim();
+      const normalizedName = patientName.trim();
+      const isPublicPatientFlow = authMode === "patient" && Boolean(clinicProfile.publicSlug);
       const response = await fetch(
-        isPublicPatientRegistration
+        isPublicPatientFlow
           ? `${apiUrl}/api/public/clinics/${encodeURIComponent(clinicProfile.publicSlug)}/patients/register`
           : `${apiUrl}/api/auth/login`,
         {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(isPublicPatientRegistration ? { name: patientName, phone: mobile, password } : authMode === "patient" ? { phone: mobile, password } : { email, password }),
+        body: JSON.stringify(isPublicPatientFlow ? { name: normalizedName, phone: normalizedPhone, password } : authMode === "patient" ? { phone: normalizedPhone, password } : { email, password }),
         },
       );
 
+      const payload = await response.json().catch(() => null) as { detail?: string; user?: { role?: string; clinic_id?: string; clinic_name?: string }; access_token?: string } | null;
+
       if (!response.ok) {
-        throw new Error("Sign in failed");
+        throw new Error(payload?.detail || "Sign in failed");
       }
 
-      const data = await response.json();
+      const data = payload as { user?: { role?: string; clinic_id?: string; clinic_name?: string }; access_token?: string };
       const role = String(data.user?.role ?? "").toLowerCase() as UserRole;
       if (role !== authMode && !(authMode === "clinic_admin" && role === "platform_admin")) {
         throw new Error("This account does not match the selected sign-in role.");
@@ -290,8 +644,19 @@ function App() {
       if (role === "patient" && clinicProfile.id && data.user?.clinic_id !== clinicProfile.id) {
         throw new Error("This patient account does not belong to the clinic in this QR code.");
       }
+      if (!data.access_token) {
+        throw new Error("Sign in did not return a session token.");
+      }
+
       setAccessToken(data.access_token);
       const clinicNameFromServer = data.user?.clinic_name || "Clinic Workspace";
+
+      if (role === "platform_admin") {
+        setCurrentUserRole(role);
+        setMessage(`Welcome back, ${clinicNameFromServer}.`);
+        setScreen("dashboard");
+        return;
+      }
 
       if (role === "clinic_admin") {
         const profileResponse = await fetch(`${apiUrl}/api/clinics/me`, {
@@ -307,8 +672,8 @@ function App() {
       setCurrentUserRole(role);
       setMessage(`Welcome back, ${clinicNameFromServer}.`);
       setScreen("dashboard");
-    } catch {
-      setMessage("Unable to sign in. Confirm the FastAPI backend is running.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to sign in. Confirm the FastAPI backend is running.");
     }
   }
 
@@ -344,7 +709,22 @@ function App() {
     }
   }
 
-  function handleBookingSubmit(event: FormEvent<HTMLFormElement>) {
+  function toTwentyFourHourTime(displayTime: string) {
+    const match = displayTime.trim().match(/^(\d{1,2}):(\d{2})\s*([AP]M)$/i);
+    if (!match) return displayTime;
+    let hours = Number(match[1]) % 12;
+    if (match[3].toUpperCase() === "PM") hours += 12;
+    return `${String(hours).padStart(2, "0")}:${match[2]}:00`;
+  }
+
+  function getNextAppointmentEndTime(displayTime: string) {
+    const parsed = new Date(`1970-01-01T${toTwentyFourHourTime(displayTime)}`);
+    if (Number.isNaN(parsed.getTime())) return "";
+    parsed.setMinutes(parsed.getMinutes() + 30);
+    return `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}:00`;
+  }
+
+  async function handleBookingSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const patient = patientList.find((entry) => entry.name === bookingForm.patient);
@@ -357,20 +737,87 @@ function App() {
       return;
     }
 
+    if (currentUserRole !== "clinic_admin") {
+      setMessage("Patients can book from the mobile QR flow. Use the clinic dashboard to create staff-side appointments.");
+      return;
+    }
+
+    if (!accessToken) {
+      setMessage("Please sign in before creating an appointment.");
+      return;
+    }
+
+    if (!patient || !doctor) {
+      setMessage("Select a patient and doctor before creating the appointment.");
+      return;
+    }
+
+    if (!bookingForm.date || !bookingForm.time) {
+      setMessage("Select both a date and time for the appointment.");
+      return;
+    }
+
     setAssignmentError(null);
 
-    const newAppointment: Appointment = {
-      patient: bookingForm.patient,
-      doctor: bookingForm.doctor,
-      service: bookingForm.service,
-      time: bookingForm.time,
-      status: "Confirmed",
-    };
+    try {
+      const response = await fetch(`${apiUrl}/api/appointments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          patient_id: patient.id,
+          doctor_id: doctor.id,
+          appointment_date: bookingForm.date,
+          start_time: toTwentyFourHourTime(bookingForm.time),
+          end_time: getNextAppointmentEndTime(bookingForm.time) || toTwentyFourHourTime(bookingForm.time),
+          reason: bookingForm.service || "Consultation",
+        }),
+      });
 
-    setSchedule((current) => [newAppointment, ...current]);
-    setMessage(`Booking created for ${bookingForm.patient} with ${bookingForm.doctor}.`);
-    setBookingForm({ patient: "", doctor: "", service: "", date: "", time: "" });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.detail || "Unable to create appointment.");
+      }
+
+      const newAppointment: Appointment = {
+        id: data?.id,
+        patient: patient.name,
+        doctor: doctor.name,
+        service: bookingForm.service || "Consultation",
+        time: bookingForm.time,
+        date: bookingForm.date,
+        status: "Confirmed",
+      };
+
+      setSchedule((current) => [newAppointment, ...current]);
+      setMessage(`Booking created for ${patient.name} with ${doctor.name}.`);
+      setBookingForm({ patient: "", doctor: "", service: "", date: "", time: "" });
+      setScreen("appointments");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to create appointment.");
+    }
+  }
+
+  function applyAiBookingRecommendation() {
+    const patientNameToUse = recommendedPatient?.name || bookingForm.patient || selectedPatientName || patientList[0]?.name || "";
+    const doctorNameToUse = appointmentAiDoctorName;
+    const dateToUse = appointmentAiDate;
+    const timeToUse = appointmentAiSlot;
+
+    setBookingForm((current) => ({
+      ...current,
+      patient: patientNameToUse,
+      doctor: doctorNameToUse,
+      date: dateToUse,
+      time: timeToUse,
+      service: current.service || "Consultation",
+    }));
+    if (patientNameToUse) setSelectedPatientName(patientNameToUse);
     setScreen("appointments");
+    setMessage(
+      doctorNameToUse && dateToUse && timeToUse
+        ? `AI booking applied for ${patientNameToUse} with ${doctorNameToUse} on ${dateToUse} at ${timeToUse}.`
+        : "AI booking applied. Select a time slot if one is available.",
+    );
   }
 
   const selectedDoctor = doctorList.find((doctor) => doctor.id === selectedDoctorId) ?? doctorList[0];
@@ -518,7 +965,12 @@ function App() {
         patientName={patientName}
         isPatientRegistration={isPatientRegistration}
         message={message}
-        onAuthModeChange={setAuthMode}
+        onAuthModeChange={(mode) => {
+          setAuthMode(mode);
+          if (mode === "patient") {
+            setIsPatientRegistration(true);
+          }
+        }}
         onEmailChange={setEmail}
         onMobileChange={setMobile}
         onPasswordChange={setPassword}
@@ -559,30 +1011,34 @@ function App() {
   const activeMeta = pageMeta[screen as keyof typeof pageMeta];
   const isPatientView = currentUserRole === "patient";
   const patientNavItems = [
-    { key: "dashboard", label: "Dashboard", icon: "▣" },
-    { key: "care_team", label: "My Doctor / Care Team", icon: "◎" },
-    { key: "appointments", label: "Appointments", icon: "◫" },
-    { key: "medical_records", label: "Medical Records", icon: "◌" },
-    { key: "prescriptions", label: "Prescriptions", icon: "✓" },
-    { key: "billing", label: "Payments / Billing", icon: "◍" },
-    { key: "notifications", label: "Notifications", icon: "🔔" },
-    { key: "profile", label: "Profile", icon: "◉" },
+    { key: "showcase", label: "Showcase", icon: Sparkles },
+    { key: "dashboard", label: "Dashboard", icon: LayoutGrid },
+    { key: "care_team", label: "My Doctor / Care Team", icon: Sparkles },
+    { key: "appointments", label: "Appointments", icon: CalendarDays },
+    { key: "medical_records", label: "Medical Records", icon: BadgeCheck },
+    { key: "prescriptions", label: "Prescriptions", icon: Check },
+    { key: "billing", label: "Payments / Billing", icon: CreditCard },
+    { key: "notifications", label: "Notifications", icon: Bell },
+    { key: "profile", label: "Profile", icon: Users },
   ];
   const doctorNavItems = [
-    { key: "dashboard", label: "Dashboard", icon: "▣" },
-    { key: "patients", label: "My Patients", icon: "◎" },
-    { key: "appointments", label: "Appointments", icon: "◫" },
-    { key: "medical_records", label: "Medical Records", icon: "◌" },
-    { key: "prescriptions", label: "Prescriptions", icon: "✓" },
+    { key: "showcase", label: "Showcase", icon: Sparkles },
+    { key: "dashboard", label: "Dashboard", icon: LayoutGrid },
+    { key: "patients", label: "Patient Bookings", icon: Users },
+    { key: "appointments", label: "Appointments", icon: CalendarDays },
+    { key: "medical_records", label: "Medical Records", icon: BadgeCheck },
+    { key: "prescriptions", label: "Prescriptions", icon: Stethoscope },
   ];
   const clinicBookingUrl = clinicProfile.publicSlug
     ? `${publicAppUrl}/clinic/${clinicProfile.publicSlug}`
     : "";
+  const isLocalBookingUrl = Boolean(clinicBookingUrl) && /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?/i.test(clinicBookingUrl);
 
   if (currentUserRole === "platform_admin") {
     const platformNavItems = [
-      { key: "dashboard", label: "Dashboard", icon: "▣" },
-      { key: "payments", label: "Payments", icon: "◍" },
+      { key: "showcase", label: "Showcase", icon: Sparkles },
+      { key: "dashboard", label: "Dashboard", icon: LayoutGrid },
+      { key: "payments", label: "Payments", icon: CreditCard },
     ];
 
     return (
@@ -621,6 +1077,8 @@ function App() {
           />
 
           <main className="flex-1">
+            {screen === "showcase" && <ShowcasePage />}
+
             {screen === "dashboard" && (
               <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
                 <div className="flex flex-col gap-5 border-b border-[#d8e2d9] pb-6 md:flex-row md:items-end md:justify-between">
@@ -631,32 +1089,6 @@ function App() {
                     </h2>
                   </div>
 
-                  {!isPatientView && (
-                    <div className="flex flex-wrap items-center gap-3">
-                      {quickActions.map((action) => (
-                        <button
-                          key={action}
-                          type="button"
-                          onClick={() => {
-                            const destination: Record<string, Screen> = {
-                              "+ New appointment": "appointments",
-                              Patients: "patients",
-                              Doctors: "doctors",
-                              Schedule: "availability",
-                            };
-                            setScreen(destination[action]);
-                          }}
-                          className={
-                            action.startsWith("+")
-                              ? "rounded-xl bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white"
-                              : "rounded-xl border border-[#c7d5ca] bg-white px-4 py-2.5 text-sm font-semibold text-[#17362c]"
-                          }
-                        >
-                          {action}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
 
                 {message && (
@@ -670,17 +1102,42 @@ function App() {
                   </p>
                 )}
 
+                {renderAiPanel(aiContext)}
+
                 {currentUserRole === "doctor" && (
                   <section className="mt-8 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                      <div><p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Doctor workspace</p><h3 className="mt-2 text-2xl font-bold text-[#17362c]">My Patients</h3><p className="mt-1 text-sm text-[#587068]">Patients assigned to Dr. Ananya Rao</p></div>
-                      <button type="button" onClick={() => setScreen("patients")} className="text-sm font-semibold text-[#19b3a2]">View all patients</button>
+                      <div><p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Doctor workspace</p><h3 className="mt-2 text-2xl font-bold text-[#17362c]">Patient bookings</h3><p className="mt-1 text-sm text-[#587068]">Appointments assigned to Dr. Ananya Rao</p></div>
+                      <button type="button" onClick={() => setScreen("appointments")} className="text-sm font-semibold text-[#19b3a2]">View all bookings</button>
                     </div>
                     <div className="mt-5 grid gap-3 md:grid-cols-2">
-                      {visiblePatients.map((patient) => {
-                        const visit = schedule.find((item) => item.patient === patient.name);
-                        return <button key={patient.name} type="button" onClick={() => { setSelectedPatientName(patient.name); setScreen("patients"); }} className="rounded-2xl border border-[#dfe9e1] bg-white p-4 text-left hover:border-[#19b3a2]"><p className="font-semibold text-[#17362c]">{patient.name}</p><p className="mt-1 text-sm text-[#587068]">{visit ? `Next appointment · ${visit.time}` : `Last visit · ${patient.lastVisit}`}</p></button>;
-                      })}
+                      {schedule.filter((item) => item.doctor === (selectedDoctor?.name || "Dr. Ananya Rao")).map((booking) => (
+                        <button
+                          key={`${booking.patient}-${booking.time}`}
+                          type="button"
+                          onClick={() => {
+                            setSelectedPatientName(booking.patient);
+                            setScreen("patients");
+                          }}
+                          className="rounded-2xl border border-[#dfe9e1] bg-white p-4 text-left hover:border-[#19b3a2]"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-[#17362c]">{booking.patient}</p>
+                              <p className="mt-1 text-sm text-[#587068]">{booking.service}</p>
+                            </div>
+                            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClasses(booking.status)}`}>
+                              {booking.status}
+                            </span>
+                          </div>
+                          <p className="mt-3 text-sm text-[#587068]">{booking.date ? booking.date : "Today"} · {booking.time}</p>
+                        </button>
+                      ))}
+                      {!schedule.some((item) => item.doctor === (selectedDoctor?.name || "Dr. Ananya Rao")) && (
+                        <p className="rounded-2xl border border-dashed border-[#cfe1d7] bg-white px-4 py-6 text-sm text-[#587068]">
+                          No patient bookings yet for this doctor.
+                        </p>
+                      )}
                     </div>
                   </section>
                 )}
@@ -785,6 +1242,11 @@ function App() {
                             {clinicBookingUrl}
                           </a>
                         </div>
+                        {isLocalBookingUrl && (
+                          <p className="mt-3 rounded-xl border border-[#f3b3b3] bg-[#fbe9ea] px-4 py-3 text-sm text-[#7a2222]">
+                            This QR points to a local address. A phone can read the QR, but it will not open correctly unless <code>VITE_PUBLIC_APP_URL</code> is set to a reachable LAN or deployed URL.
+                          </p>
+                        )}
                       </div>
                     )}
 
@@ -863,13 +1325,45 @@ function App() {
                         {assignmentError}
                       </p>
                     )}
+                    <div className="mb-6 rounded-3xl border border-[#bfd7cd] bg-[linear-gradient(135deg,#f6fbf8_0%,#edf8f3_100%)] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                      <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">AI booking assistant</p>
+                      <p className="mt-2 text-sm leading-6 text-[#587068]">
+                        {appointmentAiDoctorName
+                          ? `Recommended doctor: ${appointmentAiDoctorName}. ${appointmentAiDate ? `Best date: ${appointmentAiDate}.` : ""} ${appointmentAiSlot ? `Earliest slot: ${appointmentAiSlot}.` : ""}`
+                          : "Select a patient and doctor to let the assistant recommend the best available booking path."}
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <button type="button" onClick={applyAiBookingRecommendation} className="rounded-xl bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#149d92]">
+                          Use AI recommendation
+                        </button>
+                        {availableSlotOptions[0] ? (
+                          <button
+                            type="button"
+                            onClick={() => setBookingForm((current) => ({ ...current, time: availableSlotOptions[0] }))}
+                            className="rounded-xl border border-[#cfe3da] bg-white px-4 py-2.5 text-sm font-semibold text-[#17362c] hover:border-[#19b3a2]"
+                          >
+                            Preload earliest slot
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
                     <AppointmentForm
                       patients={patientList.map((patient) => ({ id: patient.id ?? patient.name, name: patient.name }))}
                       doctors={(currentUserRole === "patient" ? assignedDoctorsForCurrentPatient : eligibleDoctors).map((doctor) => ({ id: doctor.id ?? doctor.name, name: doctor.name }))}
+                      timeSlots={availableSlotOptions}
                       form={bookingForm}
                       onChange={(field, value) => setBookingForm((current) => ({ ...current, [field]: value }))}
                       onSubmit={handleBookingSubmit}
                     />
+
+                    <div className="mt-6 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                      <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">AI booking status</p>
+                      <p className="mt-2 text-sm text-[#587068]">
+                        {availableSlotOptions.length
+                          ? `Earliest open slot: ${availableSlotOptions[0]}.`
+                          : "Pick a doctor and date to load open slots."}
+                      </p>
+                    </div>
                   </div>
 
                   <aside className="space-y-6">
@@ -904,6 +1398,13 @@ function App() {
                         ))}
                       </div>
                     </div>
+
+                    {currentUserRole !== "patient" && (
+                      <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                        <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">AI next step</p>
+                        <p className="mt-3 text-sm leading-6 text-[#587068]">The assistant will highlight conflicts, pending bookings, and the most relevant doctor before any confirmation is made.</p>
+                      </div>
+                    )}
                   </aside>
                 </div>
               </section>
@@ -1008,6 +1509,24 @@ function App() {
                   </form>
                 </div>
 
+                <div className="mb-6 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                  <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">AI patient notes</p>
+                  <div className="mt-4 grid gap-4 md:grid-cols-3">
+                    <div className="rounded-2xl bg-[#f5faf7] p-4">
+                      <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Follow-up</p>
+                      <p className="mt-2 text-sm text-[#587068]">Prioritize patients with overdue review windows and recent appointment gaps.</p>
+                    </div>
+                    <div className="rounded-2xl bg-[#f5faf7] p-4">
+                      <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Context</p>
+                      <p className="mt-2 text-sm text-[#587068]">Summaries should expose last visit, assigned doctor, and active care items before any outreach.</p>
+                    </div>
+                    <div className="rounded-2xl bg-[#f5faf7] p-4">
+                      <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Approval</p>
+                      <p className="mt-2 text-sm text-[#587068]">Keep any reassignment or record update behind explicit admin approval.</p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
                     {visiblePatients.map((patient) => (
@@ -1038,7 +1557,12 @@ function App() {
 
                   <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
                     {(() => {
-                      const patient = visiblePatients.find((entry) => entry.name === selectedPatientName) ?? visiblePatients[0];
+                      const patient = visiblePatients.find((entry) => entry.name === selectedPatientName) ?? visiblePatients[0] ?? {
+                        name: "Patient",
+                        email: "",
+                        phone: "",
+                        lastVisit: "No visits yet",
+                      };
                       const upcomingVisit = schedule.find((item) => item.patient === patient.name);
                       const assignedDoctor = assignedDoctorsForCurrentPatient[0] ?? doctorList[0];
 

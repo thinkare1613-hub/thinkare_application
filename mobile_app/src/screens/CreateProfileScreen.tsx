@@ -13,7 +13,7 @@ function dateKey(date: Date) {
 	return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
-export function CreateProfileScreen({ onComplete }: { onComplete: (profile: { name: string; password: string }) => Promise<void> }) {
+export function CreateProfileScreen({ onComplete }: { onComplete: (profile: { name: string; password?: string }) => Promise<void> }) {
 	const today = new Date();
 	const [name, setName] = useState("");
 	const [password, setPassword] = useState("");
@@ -53,9 +53,9 @@ export function CreateProfileScreen({ onComplete }: { onComplete: (profile: { na
 	}
 
 	async function submit() {
-		if (!name.trim() || !password) { setError("Name and password are required."); return; }
+		if (!name.trim()) { setError("Name is required."); return; }
 		setIsSaving(true); setError("");
-		try { await onComplete({ name: name.trim(), password }); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Unable to create your account."); setIsSaving(false); }
+		try { await onComplete({ name: name.trim(), password: password.trim() || undefined }); } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Unable to create your account."); setIsSaving(false); }
 	}
 
 	return (
@@ -63,11 +63,12 @@ export function CreateProfileScreen({ onComplete }: { onComplete: (profile: { na
 			<Text style={styles.kicker}>YOUR PROFILE</Text>
 			<Text style={styles.title}>Create your profile</Text>
 			<Text style={styles.copy}>Just the essentials for your first visit. You can add medical details later.</Text>
+			<View style={styles.aiCard}><Text style={styles.aiLabel}>AI onboarding note</Text><Text style={styles.aiText}>The app is keeping this step short on purpose. Fill in the basics now and the clinic can use the context later to suggest the right appointment or follow-up.</Text></View>
 			<TextInput value={name} onChangeText={setName} placeholder="Full name" style={styles.input} />
 			<Pressable accessibilityRole="button" onPress={openCalendar} style={styles.input}>
 				<Text style={birthDate ? styles.inputText : styles.placeholder}>{birthDate ? formatDate(birthDate) : "Date of birth - DD / MM / YYYY"}</Text>
 			</Pressable>
-			<TextInput value={password} onChangeText={setPassword} placeholder="Create password" secureTextEntry style={styles.input} />
+			<TextInput value={password} onChangeText={setPassword} placeholder="Create password (optional)" secureTextEntry style={styles.input} />
 			{error ? <Text style={styles.error}>{error}</Text> : null}
 			<View style={styles.spacer} />
 			<PrimaryButton label={isSaving ? "Creating account..." : "Create account"} onPress={() => void submit()} />
@@ -105,6 +106,9 @@ const styles = StyleSheet.create({
 	kicker: { color: "#0d8f7c", fontWeight: "800", letterSpacing: 1.5 },
 	title: { color: "#17362c", fontSize: 32, fontWeight: "800", marginTop: 14 },
 	copy: { color: "#587068", fontSize: 17, lineHeight: 26, marginTop: 12, marginBottom: 26 },
+	aiCard: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#d7e6df", borderRadius: 18, padding: 16, marginBottom: 16 },
+	aiLabel: { color: "#0d8f7c", fontWeight: "800", letterSpacing: 1.2, fontSize: 12, textTransform: "uppercase" },
+	aiText: { color: "#587068", marginTop: 8, lineHeight: 22, fontSize: 14 },
 	input: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#c7d5ca", borderRadius: 14, padding: 16, marginBottom: 12, fontSize: 16 },
 	inputText: { color: "#17362c", fontSize: 16 },
 	placeholder: { color: "#71817a", fontSize: 16 },
