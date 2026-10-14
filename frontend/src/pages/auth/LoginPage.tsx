@@ -50,17 +50,28 @@ export function LoginPage({
 
           <div className="relative mt-10 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white/95 shadow-[0_10px_30px_rgba(6,27,32,0.18)] backdrop-blur-sm sm:mt-16 sm:text-lg">
             <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-            Multi-tenant Healthcare Platform
+            AI-native clinic operating system
           </div>
 
           <h1 className="relative mt-8 max-w-[620px] text-[2.8rem] font-bold leading-[0.96] tracking-[-0.06em] text-white sm:mt-12 sm:text-[4.2rem]">
             One platform for
-            <span className="mt-2 block">many clinics</span>
+            <span className="mt-2 block">appointments, doctors, and patients</span>
           </h1>
 
           <p className="relative mt-6 max-w-[620px] text-base leading-[1.6] text-white/90 sm:mt-8 sm:text-[1.25rem]">
-            Clinic owners can create their own workspace, upload a logo, manage doctors and patients, and keep data isolated inside their own tenant.
+            Clinic teams can ask the AI assistant about today&apos;s bookings, recommend the next best doctor, and keep every patient flow inside one secure tenant.
           </p>
+
+          <div className="relative mt-8 grid max-w-[620px] gap-3 rounded-[28px] border border-white/15 bg-white/10 p-4 shadow-[0_14px_35px_rgba(6,27,32,0.12)] backdrop-blur-sm sm:mt-10">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/65">AI prompt</p>
+                <p className="mt-1 text-sm font-medium text-white">How many bookings today?</p>
+              </div>
+              <div className="rounded-full bg-white/12 px-3 py-1 text-xs font-semibold text-white">AI answer</div>
+            </div>
+            <p className="text-sm leading-6 text-white/86">Your clinic gets a clear summary of today&apos;s schedule, open slots, and next patient without leaving the dashboard.</p>
+          </div>
 
           <div className="relative mt-14 grid max-w-[560px] grid-cols-3 gap-4 text-white">
             <div className="rounded-3xl border border-white/15 bg-white/8 p-4 shadow-[0_14px_35px_rgba(6,27,32,0.12)] backdrop-blur-sm">
@@ -95,7 +106,7 @@ export function LoginPage({
                   onClick={() => onAuthModeChange(mode)}
                   className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${authMode === mode ? "bg-[linear-gradient(135deg,#19b3a2_0%,#15a08e_100%)] text-white shadow-[0_10px_20px_rgba(25,179,162,0.24)]" : "text-[#587068]"}`}
                 >
-                  {mode === "clinic_admin" ? "Clinic admin" : "Patient"}
+                  {mode === "clinic_admin" ? "Clinic login" : "Patient login"}
                 </button>
               ))}
             </div>
@@ -140,10 +151,12 @@ export function LoginPage({
                 </label>
               )}
 
-              {authMode === "clinic_admin" || isPatientRegistration ? (
+              {authMode === "clinic_admin" || authMode === "patient" ? (
                 <div className="mt-7">
                   <div className="flex items-center justify-between">
-                    <label className="text-[1.05rem] font-medium text-[#2b3d3a]">{authMode === "clinic_admin" ? "Password" : "Optional password"}</label>
+                    <label className="text-[1.05rem] font-medium text-[#2b3d3a]">
+                      {authMode === "clinic_admin" ? "Password" : isPatientRegistration ? "Optional password" : "Password"}
+                    </label>
                     {authMode === "clinic_admin" ? (
                       <button type="button" className="text-[1.02rem] font-medium text-[#19b3a2] hover:text-[#118f88]">
                         Forgot password?
@@ -156,9 +169,9 @@ export function LoginPage({
                     <input
                       value={password}
                       onChange={(event) => onPasswordChange(event.target.value)}
-                      required={authMode === "clinic_admin"}
+                      required={authMode === "clinic_admin" || (authMode === "patient" && !isPatientRegistration)}
                       type="password"
-                      placeholder={authMode === "clinic_admin" ? "Enter your password" : "Leave blank to continue without a password"}
+                      placeholder={authMode === "clinic_admin" ? "Enter your password" : isPatientRegistration ? "Leave blank to continue without a password" : "Enter your password"}
                       className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
                     />
                     {authMode === "clinic_admin" ? (
@@ -178,7 +191,7 @@ export function LoginPage({
                 className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,#19b3a2_0%,#119887_100%)] py-4 text-[1.1rem] font-bold text-white shadow-[0_16px_30px_rgba(25,179,162,0.34)] transition hover:translate-y-[-1px] hover:shadow-[0_18px_34px_rgba(25,179,162,0.38)]"
               >
                 <Check className="h-5 w-5" aria-hidden="true" />
-                {authMode === "patient" ? isPatientRegistration ? "Create patient account" : "Sign In as patient" : "Sign In as admin"}
+                {authMode === "patient" ? isPatientRegistration ? "Create patient account" : "Sign in to patient account" : "Sign in to clinic account"}
               </button>
             </form>
 

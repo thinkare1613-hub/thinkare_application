@@ -44,6 +44,15 @@ DEMO_USERS: dict[str, dict[str, str]] = {
         "role": "clinic_admin",
         "password_hash": password_hash.hash("admin@123"),
     }
+    ,
+    "919876543210": {
+        "id": "user-demo-patient",
+        "clinic_id": "clinic-demo-1",
+        "email": "patient-demo@thinkare.local",
+        "phone": "+91 98765 43210",
+        "role": "patient",
+        "password_hash": password_hash.hash("patient@123"),
+    },
 }
 
 OTP_REQUESTS: dict[tuple[str, str], dict[str, str]] = {}
@@ -403,7 +412,11 @@ def login(credentials: LoginRequest) -> dict[str, object]:
     except psycopg.Error as error:
         raise HTTPException(status_code=503, detail="Authentication database is unavailable") from error
 
-    demo_user = DEMO_USERS.get(credentials.email or "")
+    normalized_phone = "".join(character for character in (credentials.phone or "") if character.isdigit())
+    demo_user = next(
+        (DEMO_USERS[key] for key in (credentials.email or "", credentials.phone or "", normalized_phone) if key in DEMO_USERS),
+        None,
+    )
     if demo_user and password_hash.verify(credentials.password, demo_user["password_hash"]):
         clinic = DEMO_CLINICS.get(demo_user["clinic_id"], {})
         role = str(demo_user["role"]).upper()
@@ -412,7 +425,7 @@ def login(credentials: LoginRequest) -> dict[str, object]:
             "token_type": "bearer",
             "user": {
                 "id": demo_user["id"],
-                "email": credentials.email or "",
+                "email": credentials.email or demo_user.get("email", ""),
                 "role": role,
                 "clinic_id": demo_user["clinic_id"],
                 "clinic_name": clinic.get("name", "Clinic Workspace"),
