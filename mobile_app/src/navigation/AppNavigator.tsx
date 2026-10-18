@@ -7,11 +7,12 @@ import { OTPScreen } from "../screens/OTPScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { AppointmentsScreen } from "../screens/AppointmentsScreen";
 import { ShowcaseScreen } from "../screens/ShowcaseScreen";
+import { ConnectedDevicesScreen } from "../screens/ConnectedDevicesScreen";
 import type { Clinic } from "../services/clinic";
 import { authStore } from "../store/authStore";
 import { sendPatientOtp, verifyPatientOtp } from "../services/auth";
 
-type Screen = "welcome" | "scan" | "confirm" | "phone" | "otp" | "home" | "appointments" | "showcase";
+type Screen = "welcome" | "scan" | "confirm" | "phone" | "otp" | "home" | "appointments" | "showcase" | "devices";
 
 export function AppNavigator() {
   const [screen, setScreen] = useState<Screen>("welcome");
@@ -46,5 +47,6 @@ export function AppNavigator() {
   }} onBack={() => setScreen("phone")} />;
   if (screen === "appointments") return <AppointmentsScreen token={authStore.token} patientName={authStore.patientName ?? ""} onBack={() => setScreen("home")} />;
   if (screen === "showcase") return <ShowcaseScreen onBack={() => setScreen("home")} />;
-  return <HomeScreen clinic={clinic ?? { id: "", publicSlug: "", name: "Thinkare" }} patientName={authStore.patientName ?? "there"} token={authStore.token} onAppointmentsPress={() => setScreen("appointments")} onShowcasePress={() => setScreen("showcase")} />;
+  if (screen === "devices") return <ConnectedDevicesScreen token={authStore.token} onBack={() => setScreen("home")} />;
+  return <HomeScreen clinic={clinic ?? { id: "", publicSlug: "", name: "Thinkare" }} patientName={authStore.patientName ?? "there"} token={authStore.token} onAppointmentsPress={() => setScreen("appointments")} onShowcasePress={() => setScreen("showcase")} onDevicesPress={() => setScreen("devices")} />;
 }

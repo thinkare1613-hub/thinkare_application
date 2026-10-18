@@ -5,7 +5,7 @@ import { ClinicCard } from "../components/ClinicCard";
 import type { Clinic } from "../services/clinic";
 import { fetchMobileAiContext, type MobileAIContext } from "../services/ai";
 
-export function HomeScreen({ clinic, patientName, token, onAppointmentsPress, onShowcasePress }: { clinic: Clinic; patientName: string; token: string | null; onAppointmentsPress: () => void; onShowcasePress: () => void }) {
+export function HomeScreen({ clinic, patientName, token, onAppointmentsPress, onShowcasePress, onDevicesPress }: { clinic: Clinic; patientName: string; token: string | null; onAppointmentsPress: () => void; onShowcasePress: () => void; onDevicesPress: () => void }) {
   const [aiContext, setAiContext] = useState<MobileAIContext | null>(null);
   const [aiError, setAiError] = useState("");
 
@@ -69,6 +69,9 @@ export function HomeScreen({ clinic, patientName, token, onAppointmentsPress, on
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Open showcase" onPress={onShowcasePress} style={({ pressed }) => [styles.tile, pressed && styles.pressed]}>
           <Text style={styles.tileText}>Showcase</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Open connected devices" onPress={onDevicesPress} style={({ pressed }) => [styles.tile, pressed && styles.pressed]}>
+          <Text style={styles.tileText}>Connected devices</Text>
         </Pressable>
         {["Records", "Prescriptions", "Billing"].map((item) => (
           <View key={item} style={styles.tile}>

@@ -53,6 +53,13 @@ DEMO_USERS: dict[str, dict[str, str]] = {
         "role": "patient",
         "password_hash": password_hash.hash("patient@123"),
     },
+    "doctor@gmail.com": {
+        "id": "user-demo-doctor",
+        "clinic_id": "clinic-demo-1",
+        "email": "doctor@gmail.com",
+        "role": "doctor",
+        "password_hash": password_hash.hash("doctor@123"),
+    },
 }
 
 OTP_REQUESTS: dict[tuple[str, str], dict[str, str]] = {}
@@ -187,6 +194,11 @@ class AIActionApprovalRequest(BaseModel):
     approved: bool = True
 
 
+class WearableConsentRequest(BaseModel):
+    granted: bool
+    consent_version: str
+
+
 def validate_same_clinic_patient_doctor(patient_id: UUID, doctor_id: UUID, connection) -> None:
     patient = connection.execute(
         "SELECT clinic_id FROM patients WHERE id = %s",
@@ -274,6 +286,184 @@ def ensure_record_access(record: tuple[object, ...], user: dict[str, str], conne
         patient = connection.execute("SELECT id FROM patients WHERE user_id = %s", (user["id"],)).fetchone()
         if not patient or str(patient[0]) != str(record[2]):
             raise HTTPException(status_code=403, detail="You can only access your own medical records")
+
+
+def get_authenticated_patient_id(user: dict[str, str], connection) -> UUID:
+    patient = connection.execute(
+        "SELECT id FROM patients WHERE user_id = %s AND clinic_id = %s",
+        (user["id"], user["clinic_id"]),
+    ).fetchone()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+    return patient[0]
+
+
+def wearable_provider_unavailable() -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail="Google Health API access and server-side integration are not configured.",
+    )
+
+
+@app.get("/api/wearables/fitbit/status")
+def wearable_fitbit_status(
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> dict[str, object]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        consent = connection.execute(
+            "SELECT consent_version, granted_at, revoked_at FROM wearable_consents WHERE patient_id = %s AND provider = 'fitbit'",
+            (patient_id,),
+        ).fetchone()
+        wearable = connection.execute(
+            "SELECT connected_at, last_sync_at, access_token_ciphertext FROM wearable_connections WHERE patient_id = %s AND provider = 'fitbit'",
+            (patient_id,),
+        ).fetchone()
+        latest_metric = connection.execute(
+            "SELECT MAX(recorded_at) FROM wearable_health_metrics WHERE patient_id = %s AND provider = 'fitbit'",
+            (patient_id,),
+        ).fetchone()
+
+    connected = bool(wearable and wearable[0] and wearable[2])
+    consent_granted = bool(consent and consent[1] and not consent[2])
+    return {
+        "provider": "fitbit",
+        "connected": connected,
+        "consent_granted": consent_granted,
+        "consent_version": consent[0] if consent else None,
+        "provider_ready": False,
+        "latest_sync_at": str(wearable[1]) if wearable and wearable[1] else None,
+        "latest_metric_at": str(latest_metric[0]) if latest_metric and latest_metric[0] else None,
+        "message": "Google Health API access and server-side integration are not configured.",
+    }
+
+
+@app.post("/api/wearables/fitbit/consent")
+def update_wearable_consent(
+    payload: WearableConsentRequest,
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> dict[str, bool]:
+    if not payload.consent_version.strip():
+        raise HTTPException(status_code=422, detail="A consent version is required")
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        if payload.granted:
+            connection.execute(
+                """
+                INSERT INTO wearable_consents (patient_id, provider, consent_version, granted_at, revoked_at)
+                VALUES (%s, 'fitbit', %s, NOW(), NULL)
+                ON CONFLICT (patient_id, provider) DO UPDATE
+                SET consent_version = EXCLUDED.consent_version, granted_at = NOW(), revoked_at = NULL
+                """,
+                (patient_id, payload.consent_version.strip()),
+            )
+        else:
+            connection.execute(
+                "UPDATE wearable_consents SET revoked_at = NOW() WHERE patient_id = %s AND provider = 'fitbit'",
+                (patient_id,),
+            )
+            connection.execute(
+                "UPDATE wearable_connections SET access_token_ciphertext = NULL, refresh_token_ciphertext = NULL WHERE patient_id = %s AND provider = 'fitbit'",
+                (patient_id,),
+            )
+        connection.commit()
+    return {"consent_granted": payload.granted}
+
+
+@app.get("/api/wearables/fitbit/connect")
+def connect_fitbit(
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> dict[str, str]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        consent = connection.execute(
+            "SELECT granted_at, revoked_at FROM wearable_consents WHERE patient_id = %s AND provider = 'fitbit'",
+            (patient_id,),
+        ).fetchone()
+    if not consent or not consent[0] or consent[1]:
+        raise HTTPException(status_code=403, detail="Active patient consent is required before connecting Fitbit.")
+    raise wearable_provider_unavailable()
+
+
+@app.get("/api/wearables/fitbit/callback")
+def fitbit_callback() -> None:
+    raise wearable_provider_unavailable()
+
+
+@app.post("/api/wearables/fitbit/sync")
+def sync_fitbit(
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> dict[str, str]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        consent = connection.execute(
+            "SELECT granted_at, revoked_at FROM wearable_consents WHERE patient_id = %s AND provider = 'fitbit'",
+            (patient_id,),
+        ).fetchone()
+    if not consent or not consent[0] or consent[1]:
+        raise HTTPException(status_code=403, detail="Active patient consent is required before syncing Fitbit.")
+    raise wearable_provider_unavailable()
+
+
+@app.get("/api/wearables/health-metrics")
+def list_wearable_health_metrics(
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> list[dict[str, object]]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        rows = connection.execute(
+            """
+            SELECT id, provider, metric_type, metric_value, unit, recorded_at
+            FROM wearable_health_metrics
+            WHERE patient_id = %s
+            ORDER BY recorded_at DESC
+            LIMIT 200
+            """,
+            (patient_id,),
+        ).fetchall()
+    return [
+        {
+            "id": str(row[0]),
+            "provider": row[1],
+            "metric_type": row[2],
+            "metric_value": str(row[3]),
+            "unit": row[4],
+            "recorded_at": row[5].isoformat(),
+        }
+        for row in rows
+    ]
+
+
+@app.delete("/api/wearables/fitbit/disconnect")
+def disconnect_fitbit(
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> dict[str, object]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        connection.execute(
+            "UPDATE wearable_consents SET revoked_at = NOW() WHERE patient_id = %s AND provider = 'fitbit'",
+            (patient_id,),
+        )
+        connection.execute(
+            "UPDATE wearable_connections SET access_token_ciphertext = NULL, refresh_token_ciphertext = NULL WHERE patient_id = %s AND provider = 'fitbit'",
+            (patient_id,),
+        )
+        connection.commit()
+    return {"connected": False, "health_metrics_preserved": True}
+
+
+@app.delete("/api/wearables/health-metrics")
+def delete_wearable_health_metrics(
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> dict[str, int]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        result = connection.execute(
+            "DELETE FROM wearable_health_metrics WHERE patient_id = %s",
+            (patient_id,),
+        )
+        connection.commit()
+    return {"deleted_count": result.rowcount}
 
 
 @app.get("/api/medical-records")
