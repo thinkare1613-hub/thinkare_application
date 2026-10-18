@@ -2,14 +2,14 @@ import type { FormEvent } from "react";
 import { Check, Eye, LockKeyhole, Mail, Phone, Sparkles, ShieldCheck } from "lucide-react";
 
 type LoginPageProps = {
-  authMode: "clinic_admin" | "patient";
+  authMode: "clinic_admin" | "doctor" | "patient";
   email: string;
   mobile: string;
   password: string;
   patientName: string;
   isPatientRegistration: boolean;
   message: string;
-  onAuthModeChange: (mode: "clinic_admin" | "patient") => void;
+  onAuthModeChange: (mode: "clinic_admin" | "doctor" | "patient") => void;
   onEmailChange: (value: string) => void;
   onMobileChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
@@ -96,20 +96,30 @@ export function LoginPage({
               Welcome back
             </div>
             <h2 className="mt-4 text-[3.2rem] font-bold tracking-[-0.06em] text-[#1d2d2a]">Welcome back</h2>
-            <p className="mt-3 text-[1.15rem] text-[#5c6664]">{authMode === "patient" ? "Create or sign in to your patient account for this clinic" : "Sign in to your clinic dashboard"}</p>
+            <p className="mt-3 text-[1.15rem] text-[#5c6664]">{authMode === "patient" ? "Create or sign in to your patient account for this clinic" : authMode === "doctor" ? "Sign in to your doctor workspace" : "Sign in to your clinic dashboard"}</p>
 
             <div className="mt-6 flex rounded-2xl border border-[#d8e2d9] bg-white p-1.5 shadow-[0_16px_35px_rgba(18,58,49,0.05)]">
-              {(["clinic_admin", "patient"] as const).map((mode) => (
+              {(["clinic_admin", "doctor", "patient"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => onAuthModeChange(mode)}
                   className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${authMode === mode ? "bg-[linear-gradient(135deg,#19b3a2_0%,#15a08e_100%)] text-white shadow-[0_10px_20px_rgba(25,179,162,0.24)]" : "text-[#587068]"}`}
                 >
-                  {mode === "clinic_admin" ? "Clinic login" : "Patient login"}
+                  {mode === "clinic_admin" ? "Clinic login" : mode === "doctor" ? "Doctor login" : "Patient login"}
                 </button>
               ))}
             </div>
+
+            {import.meta.env.DEV && (
+              <p className="mt-3 text-sm text-[#587068]">
+                {authMode === "doctor"
+                  ? "Demo login: doctor@gmail.com / doctor@123"
+                  : authMode === "patient"
+                    ? "Demo login: +91 98765 43210 / patient@123"
+                    : "Demo login: admin@gmail.com / admin@123"}
+              </p>
+            )}
 
             <form onSubmit={onSubmit} className="mt-8">
               {authMode === "patient" && isPatientRegistration && (
@@ -118,7 +128,7 @@ export function LoginPage({
                   <input value={patientName} onChange={(event) => onPatientNameChange(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 text-[1.05rem] text-[#1d2d2a] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] focus:outline-none" />
                 </label>
               )}
-              {authMode === "clinic_admin" && (
+              {authMode !== "patient" && (
                 <label className="block text-[1.05rem] font-medium text-[#2b3d3a]">
                   Email address
                   <div className="mt-2 flex items-center gap-3 rounded-xl border border-[#d6e0db] bg-[#f9fbfa] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
@@ -128,7 +138,7 @@ export function LoginPage({
                       onChange={(event) => onEmailChange(event.target.value)}
                       required
                       type="email"
-                      placeholder="clinic@domain.com"
+                      placeholder={authMode === "doctor" ? "doctor@domain.com" : "clinic@domain.com"}
                       className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
                     />
                   </div>
@@ -169,9 +179,9 @@ export function LoginPage({
                     <input
                       value={password}
                       onChange={(event) => onPasswordChange(event.target.value)}
-                      required={authMode === "clinic_admin" || (authMode === "patient" && !isPatientRegistration)}
+                      required={authMode !== "patient" || !isPatientRegistration}
                       type="password"
-                      placeholder={authMode === "clinic_admin" ? "Enter your password" : isPatientRegistration ? "Leave blank to continue without a password" : "Enter your password"}
+                      placeholder={authMode === "patient" && isPatientRegistration ? "Leave blank to continue without a password" : "Enter your password"}
                       className="w-full border-0 bg-transparent text-[1.05rem] text-[#1d2d2a] placeholder:text-[#7d8a86] focus:outline-none"
                     />
                     {authMode === "clinic_admin" ? (
@@ -191,7 +201,7 @@ export function LoginPage({
                 className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,#19b3a2_0%,#119887_100%)] py-4 text-[1.1rem] font-bold text-white shadow-[0_16px_30px_rgba(25,179,162,0.34)] transition hover:translate-y-[-1px] hover:shadow-[0_18px_34px_rgba(25,179,162,0.38)]"
               >
                 <Check className="h-5 w-5" aria-hidden="true" />
-                {authMode === "patient" ? isPatientRegistration ? "Create patient account" : "Sign in to patient account" : "Sign in to clinic account"}
+                {authMode === "patient" ? isPatientRegistration ? "Create patient account" : "Sign in to patient account" : authMode === "doctor" ? "Sign in to doctor account" : "Sign in to clinic account"}
               </button>
             </form>
 
@@ -207,7 +217,7 @@ export function LoginPage({
               </p>
             )}
 
-            <p className="mt-8 text-center text-[1.03rem] text-[#5c6664]">
+            {authMode === "clinic_admin" && <p className="mt-8 text-center text-[1.03rem] text-[#5c6664]">
               Don&apos;t have a clinic account?{' '}
               <button
                 type="button"
@@ -216,7 +226,7 @@ export function LoginPage({
               >
                 Create clinic account
               </button>
-            </p>
+            </p>}
           </div>
         </div>
       </section>

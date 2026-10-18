@@ -1,6 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { BadgeCheck, Bell, CalendarDays, Check, CreditCard, LayoutGrid, Search, Sparkles, Stethoscope, Users } from "lucide-react";
+import { BadgeCheck, Bell, CalendarDays, Check, CreditCard, HeartPulse, LayoutGrid, Search, Sparkles, Stethoscope, Users } from "lucide-react";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
@@ -8,14 +8,15 @@ import { validatePatientDoctorClinicMatch } from "./clinicValidation";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { CreateClinicAccountPage } from "./pages/auth/CreateClinicAccountPage";
 import { MedicalRecordsPage } from "./components/medical-records/MedicalRecordsPage";
+import { ConnectedDevicesPage } from "./components/ConnectedDevicesPage";
 import { AppointmentForm } from "./components/appointments/AppointmentForm";
 import { BillingPage } from "./components/billing/BillingPage";
 import { SuperAdminDashboard } from "./components/SuperAdminDashboard";
 import { ShowcasePage } from "./components/ShowcasePage";
 import { ClinicDashboard } from "./components/ClinicDashboard";
 
-type Screen = "login" | "register" | "showcase" | "dashboard" | "payments" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
-type AuthMode = "clinic_admin" | "patient";
+type Screen = "login" | "register" | "showcase" | "dashboard" | "payments" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile" | "connected_devices";
+type AuthMode = "clinic_admin" | "doctor" | "patient";
 type UserRole = "clinic_admin" | "platform_admin" | "doctor" | "patient";
 
 type Appointment = {
@@ -130,6 +131,7 @@ const pageMeta = {
   billing: { title: "Billing", subtitle: "Invoices, payments, and plans." },
   notifications: { title: "Notifications", subtitle: "System alerts and messages." },
   profile: { title: "Profile", subtitle: "Your account and preferences." },
+  connected_devices: { title: "Connected Devices", subtitle: "Manage your Fitbit connection and shared health data." },
 } as const;
 
 const appointmentDemoDoctors: Doctor[] = [
@@ -836,6 +838,8 @@ function App() {
           setIsPatientRegistration(false);
           setPatientName("");
           setMobile("");
+          setEmail("");
+          setPassword("");
         }}
         onEmailChange={setEmail}
         onMobileChange={setMobile}
@@ -882,6 +886,7 @@ function App() {
     { key: "care_team", label: "My Doctor / Care Team", icon: Sparkles },
     { key: "appointments", label: "Appointments", icon: CalendarDays },
     { key: "medical_records", label: "Medical Records", icon: BadgeCheck },
+    { key: "connected_devices", label: "Connected Devices", icon: HeartPulse },
     { key: "prescriptions", label: "Prescriptions", icon: Check },
     { key: "billing", label: "Payments / Billing", icon: CreditCard },
     { key: "notifications", label: "Notifications", icon: Bell },
@@ -944,6 +949,10 @@ function App() {
 
           <main className="flex-1">
             {screen === "showcase" && <ShowcasePage />}
+
+            {screen === "connected_devices" && isPatientView && (
+              <ConnectedDevicesPage apiUrl={apiUrl} accessToken={accessToken} />
+            )}
 
             {screen === "dashboard" && (
               <ClinicDashboard
