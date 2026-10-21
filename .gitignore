@@ -44,3 +44,9 @@ yarn-error.log*
 __pycache__/
 *.py[cod]
 .venv/
+
+# Local backups and debug signing keys
+thinkare-health-connect-backup.zip
+thinkare-before-health-connect-fix.patch
+thinkare_booking_db_backup.dump
+mobile_app/android/app/debug.keystore
