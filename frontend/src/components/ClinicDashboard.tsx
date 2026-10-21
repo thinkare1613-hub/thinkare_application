@@ -108,7 +108,7 @@ export function ClinicDashboard({
   const completedToday = demoSchedule.filter((item) => item.status === "Completed").length;
   const waitingToday = demoSchedule.filter((item) => item.status === "Waiting").length;
   const nextPatient = demoSchedule[0];
-  const bookingUrl = clinicBookingUrl || `${window.location.origin}/clinic/${clinicName.toLowerCase().replace(/\s+/g, "-")}`;
+  const bookingUrl = clinicBookingUrl;
 
   return (
     <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
@@ -242,11 +242,21 @@ export function ClinicDashboard({
             <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Clinic booking QR</p>
             <div className="mt-4 flex items-center gap-4">
               <div className="grid size-24 place-items-center rounded-2xl border border-[#dfe9e1] bg-white p-2 shadow-[0_10px_24px_rgba(20,108,82,0.08)]">
-                <QRCodeCanvas value={bookingUrl} size={88} bgColor="#ffffff" fgColor="#17362c" level="M" includeMargin={false} />
+                {bookingUrl ? (
+                  <QRCodeCanvas value={bookingUrl} size={88} bgColor="#ffffff" fgColor="#17362c" level="M" includeMargin={false} />
+                ) : (
+                  <p className="text-center text-[10px] leading-tight text-[#7a2222]">QR unavailable</p>
+                )}
               </div>
               <div className="min-w-0 flex-1 text-sm text-[#587068]">
-                <p>Scan to book appointment</p>
-                <p className="mt-1 break-all text-[#17362c]">{bookingUrl}</p>
+                {bookingUrl ? (
+                  <>
+                    <p>Scan to book appointment</p>
+                    <p className="mt-1 break-all text-[#17362c]">{bookingUrl}</p>
+                  </>
+                ) : (
+                  <p className="text-[#7a2222]">A verified clinic booking link is unavailable. Sign out and back in after clinic setup, or contact support.</p>
+                )}
               </div>
             </div>
             {isLocalBookingUrl && <p className="mt-3 text-xs text-[#7a2222]">Local URL detected. Use a reachable LAN or deployed URL.</p>}
