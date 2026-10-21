@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import {
-  connectFitbit,
   deleteWearableMetrics,
   disconnectFitbit,
   getFitbitStatus,
@@ -11,6 +10,7 @@ import {
   type HealthMetric,
   type WearableStatus,
 } from "../services/wearables";
+import { readFitbitHealthConnectMetrics } from "../services/healthConnect";
 
 const metricLabels: Record<string, string> = {
   steps: "Steps",
@@ -79,30 +79,35 @@ export function ConnectedDevicesScreen({ token, onBack }: { token: string | null
     void withBusy(async () => {
       await updateFitbitConsent(token, granted);
       setStatus((current) => current ? { ...current, consent_granted: granted } : current);
-      setMessage(granted ? "Consent saved. Fitbit connection is still unavailable until provider access is approved and configured." : "Consent withdrawn.");
+      setMessage(granted ? "Consent saved. Connect Fitbit data through Health Connect on Android." : "Consent withdrawn.");
+        setMessage(granted ? "Consent saved. Sync Fire-Boltt data through Health Connect on Android." : "Consent withdrawn.");
     });
   }
 
-  function startConnection() {
+  async function syncFromDevice() {
     if (!token) return;
-    void withBusy(async () => {
-      const result = await connectFitbit(token);
-      if (result.authorization_url) await Linking.openURL(result.authorization_url);
-    });
+    const localMetrics = await readFitbitHealthConnectMetrics();
+    const result = await syncFitbit(token, localMetrics);
+    await loadData();
+    if (result.received_count === 0) {
+      setMessage("No Da Fit or Google Fit records were found in Health Connect. Da Fit's Android export is not confirmed for this model.");
+    } else {
+      setMessage(`Synced ${result.synced_count} Fire-Boltt readings from Health Connect.`);
+    }
+  }
+
+  function startConnection() {
+    void withBusy(syncFromDevice);
   }
 
   function syncData() {
     if (!token) return;
-    void withBusy(async () => {
-      await syncFitbit(token);
-      await loadData();
-      setMessage("Health data sync completed.");
-    });
+    void withBusy(syncFromDevice);
   }
 
   function disconnect() {
     if (!token) return;
-    Alert.alert("Disconnect Fitbit?", "New data will stop syncing. Previously saved readings will remain until you delete them.", [
+    Alert.alert("Disconnect Fire-Boltt?", "New data will stop syncing. Previously saved readings will remain until you delete them.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Disconnect",
@@ -110,7 +115,7 @@ export function ConnectedDevicesScreen({ token, onBack }: { token: string | null
         onPress: () => void withBusy(async () => {
           await disconnectFitbit(token);
           await loadData();
-          setMessage("Fitbit disconnected. Saved readings were preserved.");
+          setMessage("Fire-Boltt disconnected. Saved readings were preserved.");
         }),
       },
     ]);
@@ -118,7 +123,7 @@ export function ConnectedDevicesScreen({ token, onBack }: { token: string | null
 
   function deleteData() {
     if (!token) return;
-    Alert.alert("Delete Fitbit data?", "This permanently deletes all Fitbit readings saved to Thinkare.", [
+    Alert.alert("Delete Fire-Boltt data?", "This permanently deletes all Fire-Boltt readings saved to Thinkare.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete data",
@@ -126,7 +131,7 @@ export function ConnectedDevicesScreen({ token, onBack }: { token: string | null
         onPress: () => void withBusy(async () => {
           const result = await deleteWearableMetrics(token);
           setMetrics([]);
-          setMessage(`${result.deleted_count} readings deleted.`);
+          setMessage(`${result.deleted_count} Fire-Boltt readings deleted.`);
           await loadData();
         }),
       },
@@ -145,7 +150,7 @@ export function ConnectedDevicesScreen({ token, onBack }: { token: string | null
       </Pressable>
       <Text style={styles.kicker}>PATIENT DEVICES</Text>
       <Text style={styles.title}>Connected Devices</Text>
-      <Text style={styles.intro}>Choose whether to share Fitbit activity and wellness data with your care team.</Text>
+      <Text style={styles.intro}>Choose whether to share your Fire-Boltt activity and wellness data with your care team.</Text>
 
       {error ? (
         <View accessibilityRole="alert" style={styles.errorBox}>
@@ -164,23 +169,23 @@ export function ConnectedDevicesScreen({ token, onBack }: { token: string | null
         <>
           <View style={styles.deviceSection}>
             <View style={styles.deviceHeader}>
-              <View style={styles.deviceIcon}><Text style={styles.deviceIconText}>F</Text></View>
+              <View style={styles.deviceIcon}><Text style={styles.deviceIconText}>FB</Text></View>
               <View style={styles.deviceCopy}>
-                <Text style={styles.deviceName}>Fitbit</Text>
-                <Text style={styles.muted}>Activity and wellness data</Text>
-                <Text style={styles.connectionState}>{status.connected ? "Connected" : "Not connected"}</Text>
+                <Text style={styles.deviceName}>Fire-Boltt BSW049</Text>
+                <Text style={styles.muted}>Da Fit activity and wellness data</Text>
+                <Text style={styles.connectionState}>{status.connected ? "Connected via Health Connect" : "Not connected"}</Text>
               </View>
             </View>
 
             <View style={styles.providerNotice}>
-              <Text style={styles.providerNoticeText}>{status.message}</Text>
+              <Text style={styles.providerNoticeText}>{Platform.OS === "android" ? status.message : "Fire-Boltt data import through Health Connect is available on Android only."}</Text>
             </View>
             {status.latest_sync_at ? <Text style={styles.syncTime}>Last sync: {formatTime(status.latest_sync_at)}</Text> : null}
 
             <View style={styles.consentRow}>
-              <Text style={styles.consentText}>I consent to Thinkare accessing and storing Fitbit health and activity data for sharing with my care team. I can withdraw consent at any time.</Text>
+              <Text style={styles.consentText}>I consent to Thinkare accessing and storing my Fire-Boltt health and activity data for sharing with my care team. I can withdraw consent at any time.</Text>
               <Switch
-                accessibilityLabel="Consent to share Fitbit health data"
+                accessibilityLabel="Consent to share Fire-Boltt health data"
                 value={status.consent_granted}
                 disabled={busy}
                 onValueChange={toggleConsent}
@@ -200,8 +205,8 @@ export function ConnectedDevicesScreen({ token, onBack }: { token: string | null
                   </Pressable>
                 </>
               ) : (
-                <Pressable accessibilityRole="button" disabled={busy || !status.consent_granted || !status.provider_ready} onPress={startConnection} style={[styles.primaryButton, (busy || !status.consent_granted || !status.provider_ready) && styles.disabledButton]}>
-                  <Text style={styles.primaryButtonText}>Connect Fitbit</Text>
+                  <Pressable accessibilityRole="button" disabled={busy || !status.consent_granted || !status.health_connect_available || Platform.OS !== "android"} onPress={startConnection} style={[styles.primaryButton, (busy || !status.consent_granted || !status.health_connect_available || Platform.OS !== "android") && styles.disabledButton]}>
+                    <Text style={styles.primaryButtonText}>{busy ? "Connecting…" : "Connect Fitbit data"}</Text>
                 </Pressable>
               )}
             </View>

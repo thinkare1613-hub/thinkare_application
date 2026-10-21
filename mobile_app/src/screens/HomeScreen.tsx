@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AppointmentCard } from "../components/AppointmentCard";
 import { ClinicCard } from "../components/ClinicCard";
 import type { Clinic } from "../services/clinic";
@@ -33,7 +33,7 @@ export function HomeScreen({ clinic, patientName, token, onAppointmentsPress, on
   const primaryActionLabel = aiContext?.suggested_actions?.[0] || "Continue with AI booking";
 
   return (
-    <View style={styles.page}>
+    <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
       <Text style={styles.kicker}>THINKARE PATIENT</Text>
       <Text style={styles.title}>Good morning, {patientName}</Text>
       <Text style={styles.clinic}>{clinic.name}</Text>
@@ -57,6 +57,15 @@ export function HomeScreen({ clinic, patientName, token, onAppointmentsPress, on
 
       <ClinicCard clinic={clinic} />
 
+      <Pressable accessibilityRole="button" accessibilityLabel="Open Connected Devices" onPress={onDevicesPress} style={({ pressed }) => [styles.deviceAction, pressed && styles.pressed]}>
+        <View style={styles.deviceIcon}><Text style={styles.deviceIconText}>FIT</Text></View>
+        <View style={styles.deviceCopy}>
+          <Text style={styles.deviceTitle}>Connected Devices</Text>
+          <Text style={styles.deviceDescription}>Manage Fitbit sharing and saved readings</Text>
+        </View>
+        <Text style={styles.deviceArrow}>›</Text>
+      </Pressable>
+
       <View style={styles.section}>
         <Text style={styles.heading}>Your care</Text>
         <AppointmentCard />
@@ -70,21 +79,19 @@ export function HomeScreen({ clinic, patientName, token, onAppointmentsPress, on
         <Pressable accessibilityRole="button" accessibilityLabel="Open showcase" onPress={onShowcasePress} style={({ pressed }) => [styles.tile, pressed && styles.pressed]}>
           <Text style={styles.tileText}>Showcase</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Open connected devices" onPress={onDevicesPress} style={({ pressed }) => [styles.tile, pressed && styles.pressed]}>
-          <Text style={styles.tileText}>Connected devices</Text>
-        </Pressable>
         {["Records", "Prescriptions", "Billing"].map((item) => (
           <View key={item} style={styles.tile}>
             <Text style={styles.tileText}>{item}</Text>
           </View>
         ))}
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, padding: 24, paddingTop: 64, backgroundColor: "#f4faf7" },
+  page: { flex: 1, backgroundColor: "#f4faf7" },
+  pageContent: { padding: 24, paddingTop: 64, paddingBottom: 40 },
   kicker: { color: "#0d8f7c", fontWeight: "800", letterSpacing: 1.5 },
   title: { color: "#17362c", fontSize: 32, fontWeight: "800", marginTop: 12 },
   clinic: { color: "#587068", fontSize: 16, marginTop: 6, marginBottom: 14 },
@@ -99,6 +106,13 @@ const styles = StyleSheet.create({
   primaryActionText: { color: "#fff", fontSize: 15, fontWeight: "800" },
   recommendation: { color: "#17362c", marginTop: 12, fontWeight: "700", lineHeight: 20 },
   error: { color: "#9f1d2f", marginTop: 10, fontWeight: "600" },
+  deviceAction: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: "#e5f5f0", borderWidth: 1, borderColor: "#b8dfd0", borderRadius: 16, padding: 16, marginTop: 18 },
+  deviceIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
+  deviceIconText: { color: "#087f68", fontSize: 13, fontWeight: "900", letterSpacing: 0.5 },
+  deviceCopy: { flex: 1 },
+  deviceTitle: { color: "#17362c", fontSize: 16, fontWeight: "800" },
+  deviceDescription: { color: "#587068", fontSize: 13, lineHeight: 18, marginTop: 4 },
+  deviceArrow: { color: "#087f68", fontSize: 28, fontWeight: "500" },
   section: { marginTop: 26, marginBottom: 26 },
   heading: { color: "#17362c", fontSize: 20, fontWeight: "800", marginBottom: 12 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
