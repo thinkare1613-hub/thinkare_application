@@ -12,13 +12,14 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, sta
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
+from typing import Literal
 from pwdlib import PasswordHash
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql://postgres@localhost:5433/thinkare_booking_db"
 )
-JWT_SECRET = os.getenv("JWT_SECRET", "change-this-development-secret")
+JWT_SECRET = os.getenv("JWT_SECRET", "thinkare-local-development-jwt-secret")
 JWT_ALGORITHM = "HS256"
 password_hash = PasswordHash.recommended()
 bearer_scheme = HTTPBearer()
@@ -199,6 +200,18 @@ class WearableConsentRequest(BaseModel):
     consent_version: str
 
 
+class WearableMetricInput(BaseModel):
+    metric_type: Literal["steps", "heart_rate", "sleep_duration"]
+    metric_value: Decimal = Field(gt=0)
+    unit: Literal["count", "bpm", "minutes"]
+    recorded_at: datetime
+
+
+class WearableSyncRequest(BaseModel):
+    source: Literal["health_connect"]
+    metrics: list[WearableMetricInput] = Field(max_length=2000)
+
+
 def validate_same_clinic_patient_doctor(patient_id: UUID, doctor_id: UUID, connection) -> None:
     patient = connection.execute(
         "SELECT clinic_id FROM patients WHERE id = %s",
@@ -289,12 +302,23 @@ def ensure_record_access(record: tuple[object, ...], user: dict[str, str], conne
 
 
 def get_authenticated_patient_id(user: dict[str, str], connection) -> UUID:
+    try:
+        user_id = UUID(user["id"])
+    except (KeyError, ValueError) as error:
+        raise HTTPException(
+            status_code=404,
+            detail="A verified patient profile is required. Sign in through your clinic's patient flow.",
+        ) from error
+
     patient = connection.execute(
         "SELECT id FROM patients WHERE user_id = %s AND clinic_id = %s",
-        (user["id"], user["clinic_id"]),
+        (user_id, user["clinic_id"]),
     ).fetchone()
     if not patient:
-        raise HTTPException(status_code=404, detail="Patient profile not found")
+        raise HTTPException(
+            status_code=404,
+            detail="A verified patient profile is required. Sign in through your clinic's patient flow.",
+        )
     return patient[0]
 
 
@@ -312,29 +336,34 @@ def wearable_fitbit_status(
     with psycopg.connect(DATABASE_URL) as connection:
         patient_id = get_authenticated_patient_id(user, connection)
         consent = connection.execute(
-            "SELECT consent_version, granted_at, revoked_at FROM wearable_consents WHERE patient_id = %s AND provider = 'fitbit'",
+            "SELECT consent_version, granted_at, revoked_at FROM wearable_consents WHERE patient_id = %s AND provider = 'fire_boltt'",
             (patient_id,),
         ).fetchone()
         wearable = connection.execute(
-            "SELECT connected_at, last_sync_at, access_token_ciphertext FROM wearable_connections WHERE patient_id = %s AND provider = 'fitbit'",
+            "SELECT connected_at, last_sync_at, access_token_ciphertext, connection_method FROM wearable_connections WHERE patient_id = %s AND provider = 'fire_boltt'",
             (patient_id,),
         ).fetchone()
         latest_metric = connection.execute(
-            "SELECT MAX(recorded_at) FROM wearable_health_metrics WHERE patient_id = %s AND provider = 'fitbit'",
+            "SELECT MAX(recorded_at) FROM wearable_health_metrics WHERE patient_id = %s AND provider = 'fire_boltt'",
             (patient_id,),
         ).fetchone()
 
-    connected = bool(wearable and wearable[0] and wearable[2])
+    connected = bool(
+        wearable
+        and (wearable[2] or (wearable[0] and wearable[3] == "health_connect"))
+    )
     consent_granted = bool(consent and consent[1] and not consent[2])
     return {
-        "provider": "fitbit",
+        "provider": "fire_boltt",
         "connected": connected,
         "consent_granted": consent_granted,
         "consent_version": consent[0] if consent else None,
         "provider_ready": False,
+        "health_connect_available": True,
+        "connection_method": wearable[3] if wearable else None,
         "latest_sync_at": str(wearable[1]) if wearable and wearable[1] else None,
         "latest_metric_at": str(latest_metric[0]) if latest_metric and latest_metric[0] else None,
-        "message": "Google Health API access and server-side integration are not configured.",
+        "message": "Fire-Boltt BSW049 uses Da Fit. Thinkare can import it only if Da Fit or Google Fit shares records to Health Connect.",
     }
 
 
@@ -351,7 +380,7 @@ def update_wearable_consent(
             connection.execute(
                 """
                 INSERT INTO wearable_consents (patient_id, provider, consent_version, granted_at, revoked_at)
-                VALUES (%s, 'fitbit', %s, NOW(), NULL)
+                VALUES (%s, 'fire_boltt', %s, NOW(), NULL)
                 ON CONFLICT (patient_id, provider) DO UPDATE
                 SET consent_version = EXCLUDED.consent_version, granted_at = NOW(), revoked_at = NULL
                 """,
@@ -359,11 +388,11 @@ def update_wearable_consent(
             )
         else:
             connection.execute(
-                "UPDATE wearable_consents SET revoked_at = NOW() WHERE patient_id = %s AND provider = 'fitbit'",
+                "UPDATE wearable_consents SET revoked_at = NOW() WHERE patient_id = %s AND provider = 'fire_boltt'",
                 (patient_id,),
             )
             connection.execute(
-                "UPDATE wearable_connections SET access_token_ciphertext = NULL, refresh_token_ciphertext = NULL WHERE patient_id = %s AND provider = 'fitbit'",
+                "UPDATE wearable_connections SET access_token_ciphertext = NULL, refresh_token_ciphertext = NULL, connected_at = NULL, connection_method = NULL WHERE patient_id = %s AND provider = 'fire_boltt'",
                 (patient_id,),
             )
         connection.commit()
@@ -377,7 +406,7 @@ def connect_fitbit(
     with psycopg.connect(DATABASE_URL) as connection:
         patient_id = get_authenticated_patient_id(user, connection)
         consent = connection.execute(
-            "SELECT granted_at, revoked_at FROM wearable_consents WHERE patient_id = %s AND provider = 'fitbit'",
+            "SELECT granted_at, revoked_at FROM wearable_consents WHERE patient_id = %s AND provider = 'fire_boltt'",
             (patient_id,),
         ).fetchone()
     if not consent or not consent[0] or consent[1]:
@@ -392,17 +421,53 @@ def fitbit_callback() -> None:
 
 @app.post("/api/wearables/fitbit/sync")
 def sync_fitbit(
+    payload: WearableSyncRequest,
     user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
-) -> dict[str, str]:
+) -> dict[str, int]:
+    expected_units = {"steps": "count", "heart_rate": "bpm", "sleep_duration": "minutes"}
+    for metric in payload.metrics:
+        if metric.unit != expected_units[metric.metric_type]:
+            raise HTTPException(status_code=422, detail=f"Invalid unit for {metric.metric_type}")
+        if metric.recorded_at.tzinfo is None or metric.recorded_at.utcoffset() is None:
+            raise HTTPException(status_code=422, detail="Metric timestamps must include a timezone")
+        if metric.metric_type == "heart_rate" and metric.metric_value > 250:
+            raise HTTPException(status_code=422, detail="Heart rate value is out of range")
+        if metric.metric_type == "steps" and metric.metric_value > 1_000_000:
+            raise HTTPException(status_code=422, detail="Step count is out of range")
+        if metric.metric_type == "sleep_duration" and metric.metric_value > 1_440:
+            raise HTTPException(status_code=422, detail="Sleep duration is out of range")
+
     with psycopg.connect(DATABASE_URL) as connection:
         patient_id = get_authenticated_patient_id(user, connection)
         consent = connection.execute(
-            "SELECT granted_at, revoked_at FROM wearable_consents WHERE patient_id = %s AND provider = 'fitbit'",
+            "SELECT granted_at, revoked_at FROM wearable_consents WHERE patient_id = %s AND provider = 'fire_boltt'",
             (patient_id,),
         ).fetchone()
-    if not consent or not consent[0] or consent[1]:
-        raise HTTPException(status_code=403, detail="Active patient consent is required before syncing Fitbit.")
-    raise wearable_provider_unavailable()
+        if not consent or not consent[0] or consent[1]:
+            raise HTTPException(status_code=403, detail="Active patient consent is required before syncing Fitbit.")
+        inserted_count = 0
+        for metric in payload.metrics:
+            result = connection.execute(
+                """
+                INSERT INTO wearable_health_metrics (patient_id, provider, metric_type, metric_value, unit, recorded_at)
+                VALUES (%s, 'fire_boltt', %s, %s, %s, %s)
+                ON CONFLICT (patient_id, provider, metric_type, recorded_at) DO NOTHING
+                """,
+                (patient_id, metric.metric_type, metric.metric_value, metric.unit, metric.recorded_at),
+            )
+            inserted_count += result.rowcount
+        connection.execute(
+            """
+            INSERT INTO wearable_connections (patient_id, provider, connected_at, last_sync_at, connection_method)
+            VALUES (%s, 'fire_boltt', CASE WHEN %s THEN NOW() ELSE NULL END, NOW(), 'health_connect')
+            ON CONFLICT (patient_id, provider) DO UPDATE
+            SET connected_at = CASE WHEN EXCLUDED.connected_at IS NOT NULL THEN NOW() ELSE wearable_connections.connected_at END,
+                last_sync_at = NOW(), connection_method = 'health_connect'
+            """,
+            (patient_id, bool(payload.metrics)),
+        )
+        connection.commit()
+    return {"synced_count": inserted_count, "received_count": len(payload.metrics)}
 
 
 @app.get("/api/wearables/health-metrics")
@@ -441,11 +506,11 @@ def disconnect_fitbit(
     with psycopg.connect(DATABASE_URL) as connection:
         patient_id = get_authenticated_patient_id(user, connection)
         connection.execute(
-            "UPDATE wearable_consents SET revoked_at = NOW() WHERE patient_id = %s AND provider = 'fitbit'",
+            "UPDATE wearable_consents SET revoked_at = NOW() WHERE patient_id = %s AND provider = 'fire_boltt'",
             (patient_id,),
         )
         connection.execute(
-            "UPDATE wearable_connections SET access_token_ciphertext = NULL, refresh_token_ciphertext = NULL WHERE patient_id = %s AND provider = 'fitbit'",
+            "UPDATE wearable_connections SET access_token_ciphertext = NULL, refresh_token_ciphertext = NULL, connected_at = NULL, connection_method = NULL WHERE patient_id = %s AND provider = 'fire_boltt'",
             (patient_id,),
         )
         connection.commit()

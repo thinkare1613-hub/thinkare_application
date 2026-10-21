@@ -6,6 +6,8 @@ export type WearableStatus = {
   consent_granted: boolean;
   consent_version: string | null;
   provider_ready: boolean;
+  health_connect_available: boolean;
+  connection_method: string | null;
   latest_sync_at: string | null;
   latest_metric_at: string | null;
   message: string;
@@ -36,14 +38,11 @@ export function updateFitbitConsent(token: string, granted: boolean) {
   });
 }
 
-export function connectFitbit(token: string) {
-  return request<{ authorization_url?: string }>("/api/wearables/fitbit/connect", { headers: { Authorization: `Bearer ${token}` } });
-}
-
-export function syncFitbit(token: string) {
-  return request<{ message: string }>("/api/wearables/fitbit/sync", {
+export function syncFitbit(token: string, metrics: Array<{ metric_type: "steps" | "heart_rate" | "sleep_duration"; metric_value: number; unit: "count" | "bpm" | "minutes"; recorded_at: string }>) {
+  return request<{ synced_count: number; received_count: number }>("/api/wearables/fitbit/sync", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ source: "health_connect", metrics }),
   });
 }
 

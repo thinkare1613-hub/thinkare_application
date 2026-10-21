@@ -138,8 +138,8 @@ export function ConnectedDevicesPage({ apiUrl, accessToken }: Props) {
           <div className="flex items-start gap-4">
             <div className="grid size-12 shrink-0 place-items-center rounded-xl bg-[#e5f5f0] text-[#087f68]"><Watch aria-hidden="true" /></div>
             <div>
-              <h3 className="text-xl font-semibold text-[#17362c]">Fitbit</h3>
-              <p className="mt-1 text-sm text-[#587068]">Activity and wellness data</p>
+              <h3 className="text-xl font-semibold text-[#17362c]">Fire-Boltt BSW049</h3>
+              <p className="mt-1 text-sm text-[#587068]">Da Fit activity and wellness data</p>
               <p className="mt-3 text-sm font-medium text-[#17362c]">{status?.connected ? "Connected" : "Not connected"}</p>
               <p className="mt-1 max-w-xl text-sm leading-6 text-[#587068]">
                 {status?.message || "Google Health API access has not been verified and live connection is unavailable."}
@@ -149,13 +149,13 @@ export function ConnectedDevicesPage({ apiUrl, accessToken }: Props) {
           </div>
           <div className="flex gap-2">
             {status?.connected && <button type="button" disabled={busy} onClick={() => void disconnect()} className="rounded-lg border border-[#cbd9d1] px-4 py-2.5 text-sm font-semibold text-[#17362c] disabled:opacity-50">Disconnect</button>}
-            {!status?.connected && <button type="button" disabled={busy || !status?.consent_granted} onClick={() => void connect()} className="rounded-lg bg-[#087f68] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Connect Fitbit</button>}
+            {!status?.connected && <button type="button" disabled={busy || !status?.consent_granted || !status.provider_ready} onClick={() => void connect()} className="rounded-lg bg-[#087f68] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">Connect Fitbit</button>}
           </div>
         </div>
 
         <label className="mt-6 flex max-w-3xl items-start gap-3 text-sm leading-6 text-[#42574f]">
           <input type="checkbox" className="mt-1 size-4 accent-[#087f68]" checked={status?.consent_granted ?? false} disabled={busy || !status} onChange={(event) => void updateConsent(event.currentTarget.checked)} />
-          <span>I consent to Thinkare accessing and storing Fitbit health and activity data for sharing with my care team. I can withdraw consent at any time.</span>
+          <span>I consent to Thinkare accessing and storing Fire-Boltt health and activity data for sharing with my care team. I can withdraw consent at any time.</span>
         </label>
       </section>
 
@@ -174,7 +174,7 @@ export function ConnectedDevicesPage({ apiUrl, accessToken }: Props) {
             return (
               <div key={card.label} className="border border-[#d8e2d9] bg-white p-4">
                 <div className="flex items-center gap-2 text-[#087f68]"><Icon className="size-4" aria-hidden="true" /><span className="text-sm font-semibold text-[#17362c]">{card.label}</span></div>
-                <p className="mt-4 text-lg font-semibold text-[#17362c]">{latest ? `${latest.metric_value} ${latest.unit}` : "Awaiting connection"}</p>
+                <p className="mt-4 text-lg font-semibold text-[#17362c]">{latest ? `${latest.metric_value} ${latest.unit}` : "No saved readings"}</p>
                 <p className="mt-1 text-xs text-[#718078]">{latest ? new Date(latest.recorded_at).toLocaleString() : "No saved readings"}</p>
               </div>
             );
