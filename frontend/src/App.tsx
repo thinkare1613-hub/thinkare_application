@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { BadgeCheck, Bell, CalendarDays, Check, CreditCard, HeartPulse, LayoutGrid, Search, Sparkles, Stethoscope, Users } from "lucide-react";
 import { Sidebar } from "./components/Sidebar";
@@ -627,21 +627,6 @@ function App() {
     }
   }
 
-  function toTwentyFourHourTime(displayTime: string) {
-    const match = displayTime.trim().match(/^(\d{1,2}):(\d{2})\s*([AP]M)$/i);
-    if (!match) return displayTime;
-    let hours = Number(match[1]) % 12;
-    if (match[3].toUpperCase() === "PM") hours += 12;
-    return `${String(hours).padStart(2, "0")}:${match[2]}:00`;
-  }
-
-  function getNextAppointmentEndTime(displayTime: string) {
-    const parsed = new Date(`1970-01-01T${toTwentyFourHourTime(displayTime)}`);
-    if (Number.isNaN(parsed.getTime())) return "";
-    parsed.setMinutes(parsed.getMinutes() + 30);
-    return `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}:00`;
-  }
-
   async function handleBookingSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -670,6 +655,11 @@ function App() {
       return;
     }
 
+    if (!patient.id || !doctor.id) {
+      setMessage("Select a saved patient and doctor before creating an appointment.");
+      return;
+    }
+
     if (!bookingForm.date || !bookingForm.time) {
       setMessage("Select both a date and time for the appointment.");
       return;
@@ -678,26 +668,39 @@ function App() {
     setAssignmentError(null);
 
     try {
-      const response = await fetch(`${apiUrl}/api/appointments`, {
+      const slotsResponse = await fetch(
+        `${apiUrl}/api/slots?doctor_id=${encodeURIComponent(doctor.id)}&slot_date=${encodeURIComponent(bookingForm.date)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      const slots = await slotsResponse.json() as Array<{ id: string; start_time: string }> | { detail?: string };
+      if (!slotsResponse.ok) {
+        throw new Error((!Array.isArray(slots) && slots.detail) || "Unable to load available appointment slots.");
+      }
+      if (!Array.isArray(slots)) {
+        throw new Error("The available appointment slots response was invalid.");
+      }
+
+      const selectedSlot = slots.find((slot) => slot.start_time.slice(0, 5) === bookingForm.time.slice(0, 5));
+      if (!selectedSlot) {
+        throw new Error("That time is not available for the selected date.");
+      }
+
+      const bookingResponse = await fetch(`${apiUrl}/api/appointments`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
+          slot_id: selectedSlot.id,
           patient_id: patient.id,
-          doctor_id: doctor.id,
-          appointment_date: bookingForm.date,
-          start_time: toTwentyFourHourTime(bookingForm.time),
-          end_time: getNextAppointmentEndTime(bookingForm.time) || toTwentyFourHourTime(bookingForm.time),
           reason: bookingForm.service || "Consultation",
         }),
       });
-
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(data?.detail || "Unable to create appointment.");
+      const data = await bookingResponse.json() as { id?: string; detail?: string };
+      if (!bookingResponse.ok) {
+        throw new Error(data.detail || "Unable to create appointment.");
       }
 
       const newAppointment: Appointment = {
-        id: data?.id,
+        id: data.id,
         patient: patient.name,
         doctor: doctor.name,
         service: bookingForm.service || "Consultation",
@@ -711,10 +714,11 @@ function App() {
       setBookingForm({ patient: "", doctor: "", service: "", date: "", time: "" });
       setScreen("appointments");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to create appointment.");
+      const message = error instanceof Error ? error.message : "Unable to create appointment.";
+      setAssignmentError(message);
+      setMessage(message);
     }
   }
-
   function applyAiBookingRecommendation() {
     const patientNameToUse = recommendedPatient?.name || bookingForm.patient || selectedPatientName || patientList[0]?.name || "";
     const doctorNameToUse = appointmentAiDoctorName;
