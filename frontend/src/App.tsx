@@ -1,6 +1,6 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { QRCodeSVG } from "qrcode.react";
+import { BadgeCheck, Bell, CalendarDays, Check, CreditCard, HeartPulse, LayoutGrid, Search, Sparkles, Stethoscope, Users } from "lucide-react";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
@@ -8,12 +8,15 @@ import { validatePatientDoctorClinicMatch } from "./clinicValidation";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { CreateClinicAccountPage } from "./pages/auth/CreateClinicAccountPage";
 import { MedicalRecordsPage } from "./components/medical-records/MedicalRecordsPage";
+import { ConnectedDevicesPage } from "./components/ConnectedDevicesPage";
 import { AppointmentForm } from "./components/appointments/AppointmentForm";
 import { BillingPage } from "./components/billing/BillingPage";
 import { SuperAdminDashboard } from "./components/SuperAdminDashboard";
+import { ShowcasePage } from "./components/ShowcasePage";
+import { ClinicDashboard } from "./components/ClinicDashboard";
 
-type Screen = "login" | "register" | "dashboard" | "payments" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile";
-type AuthMode = "clinic_admin" | "patient";
+type Screen = "login" | "register" | "showcase" | "dashboard" | "payments" | "care_team" | "appointments" | "medical_records" | "prescriptions" | "patients" | "doctors" | "clinics" | "availability" | "billing" | "notifications" | "profile" | "connected_devices";
+type AuthMode = "clinic_admin" | "doctor" | "patient";
 type UserRole = "clinic_admin" | "platform_admin" | "doctor" | "patient";
 
 type Appointment = {
@@ -24,98 +27,168 @@ type Appointment = {
   doctor: string;
   service: string;
   status: "Confirmed" | "Waiting" | "In progress" | "Completed" | "Cancelled";
+  bloodPressure?: string;
+  clinicId?: string;
+  patientId?: string;
+  doctorId?: string;
+};
+
+type PatientTableRow = {
+  id: string;
+  index: string;
+  patient: string;
+  code: string;
+  contact: string;
+  ageGender: string;
+  bloodGroup: string;
+  lastVisit: string;
+  nextAppointment: string;
+  status: keyof typeof patientStatusClasses;
+  avatar: string;
 };
 
 type Doctor = {
   id?: string;
+  clinicId?: string;
   name: string;
   email: string;
   phone: string;
   specialization: string;
-  qualification: string;
-  licenseNumber: string;
-  experience: string;
-  profilePhoto: string;
-  consultationFee: number;
+  qualification?: string;
+  licenseNumber?: string;
+  experience?: string;
+  profilePhoto?: string;
+  consultationFee?: number;
   status: "Available" | "On leave" | "Booked";
   availability: string;
   rating: number;
-  clinicId?: string;
 };
 
 type Patient = {
   id?: string;
+  clinicId?: string;
   name: string;
   email: string;
   phone: string;
   lastVisit: string;
-  clinicId?: string;
+  assignedDoctorName?: string;
 };
-
-const quickActions = ["+ New appointment", "Patients", "Doctors", "Schedule"];
-
-const pageMeta: Record<Exclude<Screen, "login" | "register">, { title: string; subtitle: string }> = {
-  dashboard: { title: "Dashboard", subtitle: "Overview of patient flow and clinic performance." },
-  payments: { title: "Payments", subtitle: "Subscription payment monitoring across clinics." },
-  care_team: { title: "My Doctor / Care Team", subtitle: "View your assigned clinician and care team." },
-  appointments: { title: "Appointments", subtitle: "Track visits, check-in status, and upcoming time slots." },
-  medical_records: { title: "Medical Records", subtitle: "Access your recent reports, summaries, and visit history." },
-  prescriptions: { title: "Prescriptions", subtitle: "Review active medicines and refill information." },
-  patients: { title: "Patients", subtitle: "View patient history, records, and follow-up plans." },
-  doctors: { title: "Doctors", subtitle: "Team coverage, schedules, and consultation workloads." },
-  clinics: { title: "Clinics", subtitle: "Manage locations, capacity, and operational coverage." },
-  availability: { title: "Availability", subtitle: "Control schedules, working hours, and open slots." },
-  billing: { title: "Billing", subtitle: "Review payments, outstanding balances, and invoices." },
-  notifications: { title: "Notifications", subtitle: "Stay updated on reminders, follow-ups, and care alerts." },
-  profile: { title: "Profile", subtitle: "Manage your personal details and preferences." },
-};
-
-const apiUrl = import.meta.env.VITE_API_URL ?? "https://thinkare-application.onrender.com";
-const publicAppUrl = (import.meta.env.VITE_PUBLIC_APP_URL ?? window.location.origin).replace(/\/$/, "");
 
 type ClinicProfile = {
-  id: string;
+  id?: string;
   name: string;
-  admin: string;
-  email: string;
-  phone: string;
+  admin?: string;
+  email?: string;
+  phone?: string;
   address: string;
   logo: string;
   publicSlug: string;
 };
 
-const emptyClinicProfile: ClinicProfile = {
-  id: "",
-  name: "",
-  admin: "",
-  email: "",
-  phone: "",
-  address: "",
-  logo: "",
-  publicSlug: "",
+type AIContext = {
+  screen: Screen;
+  role: UserRole;
+  clinicId: string;
+  summary: string;
+  signals: string[];
+  suggestedActions: string[];
+  confidence: "low" | "medium" | "high";
+  requiresApproval: boolean;
+  recommendedDoctorName: string;
+  recommendedDoctorId: string;
+  recommendedDate: string;
+  patientName: string;
+  rankedDoctors: Array<{ id: string; name: string; workload: number; patientHistory: number; score: number }>;
 };
 
-function statusClasses(status: Appointment["status"]) {
+type StoredSession = {
+  accessToken: string;
+  currentUserRole: UserRole;
+  authMode: AuthMode;
+  clinicProfile: ClinicProfile;
+  screen: Screen;
+};
+
+const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const publicAppUrl = window.location.origin;
+const sessionStorageKey = "thinkare-session";
+const emptyClinicProfile: ClinicProfile = { id: "", name: "Thinkare Clinic", address: "", logo: "TH", publicSlug: "" };
+
+const pageMeta = {
+  login: { title: "Welcome", subtitle: "Sign in to the clinic workspace." },
+  register: { title: "Create clinic", subtitle: "Set up a clinic account." },
+  showcase: { title: "Showcase", subtitle: "Design previews and product view." },
+  dashboard: { title: "Dashboard", subtitle: "Clinic overview and daily actions." },
+  payments: { title: "Payments", subtitle: "Platform billing and reconciliation." },
+  care_team: { title: "Care team", subtitle: "Assigned doctor and care overview." },
+  appointments: { title: "Appointments", subtitle: "Book, review, and manage slots." },
+  medical_records: { title: "Medical records", subtitle: "Patient history and files." },
+  prescriptions: { title: "Prescriptions", subtitle: "Medication and treatment plans." },
+  patients: { title: "Patients", subtitle: "Patient directory and details." },
+  doctors: { title: "Doctors", subtitle: "Doctors and clinic coverage." },
+  clinics: { title: "Clinics", subtitle: "Clinic settings and locations." },
+  availability: { title: "Availability", subtitle: "Schedules and working hours." },
+  billing: { title: "Billing", subtitle: "Invoices, payments, and plans." },
+  notifications: { title: "Notifications", subtitle: "System alerts and messages." },
+  profile: { title: "Profile", subtitle: "Your account and preferences." },
+  connected_devices: { title: "Connected Devices", subtitle: "Manage your Fitbit connection and shared health data." },
+} as const;
+
+const appointmentDemoDoctors: Doctor[] = [
+  { id: "doc-1", clinicId: "clinic-1", name: "Dr. Ananya Rao", email: "ananya@thinkare.local", phone: "+91 98765 43210", specialization: "Cardiology", status: "Available", availability: "Mon - Fri, 9:00 AM - 5:00 PM", rating: 4.9 },
+  { id: "doc-2", clinicId: "clinic-1", name: "Dr. Meera Iyer", email: "meera@thinkare.local", phone: "+91 90000 11223", specialization: "Dermatology", status: "Available", availability: "Tue - Sat, 10:00 AM - 4:00 PM", rating: 4.8 },
+  { id: "doc-3", clinicId: "clinic-1", name: "Dr. Priya Sharma", email: "priya@thinkare.local", phone: "+91 99999 88888", specialization: "Pediatrics", status: "Booked", availability: "Mon - Sat, 8:30 AM - 2:30 PM", rating: 4.7 },
+];
+
+const appointmentDemoPatients: Patient[] = [
+  { id: "pat-1", clinicId: "clinic-1", name: "Bhavani", email: "bhavani@example.com", phone: "+91 97000 11223", lastVisit: "Today" },
+  { id: "pat-2", clinicId: "clinic-1", name: "Arjun", email: "arjun@example.com", phone: "+91 97000 44556", lastVisit: "Yesterday" },
+  { id: "pat-3", clinicId: "clinic-1", name: "Meena", email: "meena@example.com", phone: "+91 97000 77889", lastVisit: "28 Aug 2024" },
+];
+
+const appointmentDemoSchedule: Appointment[] = [
+  { id: "apt-1", date: "2024-08-30", time: "09:00 AM", patient: "Bhavani", doctor: "Dr. Ananya Rao", service: "Consultation", status: "Confirmed", clinicId: "clinic-1" },
+  { id: "apt-2", date: "2024-08-30", time: "11:00 AM", patient: "Arjun", doctor: "Dr. Meera Iyer", service: "Review", status: "Waiting", clinicId: "clinic-1" },
+  { id: "apt-3", date: "2024-08-31", time: "02:00 PM", patient: "Meena", doctor: "Dr. Priya Sharma", service: "Follow-up", status: "Completed", clinicId: "clinic-1" },
+];
+
+const patientStatusClasses: Record<"New" | "Active" | "Follow-up" | "Inactive", string> = {
+  New: "bg-[#edf5ff] text-[#2563eb]",
+  Active: "bg-[#eaf9f7] text-[#0d523e]",
+  "Follow-up": "bg-[#fff4df] text-[#9c6a00]",
+  Inactive: "bg-[#edf1f4] text-[#6b7280]",
+};
+
+const statusClasses = (status: Appointment["status"]) => {
   switch (status) {
     case "Confirmed":
-      return "bg-[#eaf5ef] text-[#0d523e]";
-    case "Waiting":
-      return "bg-[#fff7e9] text-[#8a5e00]";
-    case "In progress":
-      return "bg-[#edf3ff] text-[#1f3d7a]";
+      return "bg-[#eaf9f7] text-[#0d523e]";
     case "Completed":
-      return "bg-[#e7f7ef] text-[#0c6b51]";
+      return "bg-[#edf5ff] text-[#2563eb]";
+    case "Waiting":
+      return "bg-[#fff4df] text-[#9c6a00]";
     case "Cancelled":
-      return "bg-[#fce9eb] text-[#8a1f2d]";
+      return "bg-[#fde8e8] text-[#b91c1c]";
     default:
-      return "bg-[#edf3ff] text-[#1f3d7a]";
+      return "bg-[#eef3ef] text-[#587068]";
   }
-}
+};
 
 function App() {
-  const [screen, setScreen] = useState<Screen>("login");
-  const [authMode, setAuthMode] = useState<AuthMode>("clinic_admin");
-  const [currentUserRole, setCurrentUserRole] = useState<UserRole>("clinic_admin");
+  const storedSession = (() => {
+    try {
+      const raw = window.localStorage.getItem(sessionStorageKey);
+      return raw ? (JSON.parse(raw) as Partial<StoredSession>) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const canReuseStoredSession = Boolean(storedSession?.accessToken);
+  const currentClinicSlug = window.location.pathname.match(/^\/clinic\/([^/]+)$/)?.[1];
+  const initialScreen: Screen = (storedSession?.screen as Screen | undefined) ?? "login";
+  const [screen, setScreen] = useState<Screen>(initialScreen);
+  const [authMode, setAuthMode] = useState<AuthMode>(canReuseStoredSession ? (storedSession?.authMode ?? "clinic_admin") : currentClinicSlug ? "patient" : "clinic_admin");
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>(storedSession?.currentUserRole ?? "clinic_admin");
   const [email, setEmail] = useState("");
   const [mobile, setMobile] = useState("");
   const [password, setPassword] = useState("");
@@ -125,12 +198,14 @@ function App() {
   const [adminName, setAdminName] = useState("");
   const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
-  const [clinicProfile, setClinicProfile] = useState<ClinicProfile>(emptyClinicProfile);
-  const [accessToken, setAccessToken] = useState("");
+  const [clinicProfile, setClinicProfile] = useState<ClinicProfile>(storedSession?.clinicProfile ?? emptyClinicProfile);
+  const [accessToken, setAccessToken] = useState(storedSession?.accessToken ?? "");
+  const [aiContext, setAiContext] = useState<AIContext | null>(null);
   const [doctorList, setDoctorList] = useState<Doctor[]>([]);
   const [patientList, setPatientList] = useState<Patient[]>([]);
   const [selectedPatientName, setSelectedPatientName] = useState("");
   const [schedule, setSchedule] = useState<Appointment[]>([]);
+  const [availableSlotOptions, setAvailableSlotOptions] = useState<string[]>([]);
   const [bookingForm, setBookingForm] = useState({
     patient: "",
     doctor: "",
@@ -139,8 +214,8 @@ function App() {
     time: "",
   });
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
-  const [selectedDoctorId, setSelectedDoctorId] = useState("");
   const [editingDoctorId, setEditingDoctorId] = useState<string | null>(null);
+  const [showPatientForm, setShowPatientForm] = useState(false);
   const [newDoctorForm, setNewDoctorForm] = useState({
     name: "",
     email: "",
@@ -166,6 +241,7 @@ function App() {
   useEffect(() => {
     const clinicSlug = window.location.pathname.match(/^\/clinic\/([^/]+)$/)?.[1];
     if (!clinicSlug) return;
+    if (canReuseStoredSession) return;
 
     fetch(`${apiUrl}/api/public/clinics/${encodeURIComponent(clinicSlug)}`)
       .then(async (response) => {
@@ -182,11 +258,94 @@ function App() {
           publicSlug: clinicSlug,
         }));
         setAuthMode("patient");
+        setIsPatientRegistration(false);
         setScreen("login");
         setMessage(`Welcome to ${clinic.name}. Sign in with your mobile number to book an appointment.`);
       })
       .catch((error: Error) => setMessage(error.message));
   }, []);
+
+  useEffect(() => {
+    if (!accessToken) {
+      window.localStorage.removeItem(sessionStorageKey);
+      return;
+    }
+
+    window.localStorage.setItem(
+      sessionStorageKey,
+      JSON.stringify({ accessToken, currentUserRole, authMode, clinicProfile, screen }),
+    );
+  }, [accessToken, currentUserRole, authMode, clinicProfile, screen]);
+
+  const selectedPatient = patientList.find((entry) => entry.name === selectedPatientName) ?? patientList[0];
+  const assignedDoctorsForCurrentPatient = doctorList;
+
+  const eligibleDoctors = useMemo(() => {
+    if (!selectedPatient) {
+      return doctorList;
+    }
+
+    if (currentUserRole === "patient") {
+      return assignedDoctorsForCurrentPatient;
+    }
+
+    return doctorList.filter((doctor) => doctor.clinicId === selectedPatient.clinicId || !doctor.clinicId || !selectedPatient.clinicId);
+  }, [assignedDoctorsForCurrentPatient, currentUserRole, doctorList, selectedPatient]);
+
+  const visiblePatients = useMemo(() => {
+    return patientList;
+  }, [patientList]);
+
+  const selectedBookingDoctor = useMemo(
+    () => doctorList.find((doctor) => doctor.name === bookingForm.doctor) ?? null,
+    [bookingForm.doctor, doctorList],
+  );
+
+  const recommendedPatient = useMemo(() => {
+    if (!visiblePatients.length) return null;
+    return visiblePatients.find((patient) => !schedule.some((item) => item.patient === patient.name)) ?? visiblePatients[0];
+  }, [schedule, visiblePatients]);
+
+  const appointmentContextPatientName = bookingForm.patient || selectedPatientName || recommendedPatient?.name || "";
+  const appointmentAiDoctorName = aiContext?.recommendedDoctorName || eligibleDoctors[0]?.name || doctorList[0]?.name || "";
+  const appointmentAiDate = aiContext?.recommendedDate || bookingForm.date || new Date().toISOString().slice(0, 10);
+  const appointmentAiSlot = availableSlotOptions[0] || bookingForm.time || "";
+
+  const patientTableRows = useMemo<PatientTableRow[]>(() => {
+    const fallbackRows: PatientTableRow[] = [
+      { id: "demo-p1", index: "1", patient: "Sharma", code: "PT-1001", contact: "patient-917987847603@thinkare.local\n+91 917987847603", ageGender: "34 / Male", bloodGroup: "O+", lastVisit: "No visits yet", nextAppointment: "30 Aug 2024\n09:00 AM", status: "New", avatar: "S" },
+      { id: "demo-p2", index: "2", patient: "Priya Sharma", code: "PT-1002", contact: "priya@gmail.com\n+91 9876543210", ageGender: "28 / Female", bloodGroup: "A+", lastVisit: "28 Aug 2024", nextAppointment: "02 Sep 2024\n10:30 AM", status: "Active", avatar: "P" },
+      { id: "demo-p3", index: "3", patient: "Ravi Kumar", code: "PT-1003", contact: "ravi@example.com\n+91 9123456780", ageGender: "42 / Male", bloodGroup: "B+", lastVisit: "25 Aug 2024", nextAppointment: "-", status: "Follow-up", avatar: "R" },
+      { id: "demo-p4", index: "4", patient: "Anita Joseph", code: "PT-1004", contact: "anita@example.com\n+91 9012345678", ageGender: "31 / Female", bloodGroup: "O-", lastVisit: "30 Aug 2024", nextAppointment: "05 Sep 2024\n11:30 AM", status: "Active", avatar: "A" },
+      { id: "demo-p5", index: "5", patient: "Karthik Raj", code: "PT-1005", contact: "karthik@example.com\n+91 9000111111", ageGender: "36 / Male", bloodGroup: "AB+", lastVisit: "21 Aug 2024", nextAppointment: "-", status: "Inactive", avatar: "K" },
+      { id: "demo-p6", index: "6", patient: "Sneha Nair", code: "PT-1006", contact: "sneha@example.com\n+91 9887766554", ageGender: "27 / Female", bloodGroup: "B-", lastVisit: "29 Aug 2024", nextAppointment: "03 Sep 2024\n04:00 PM", status: "Active", avatar: "S" },
+      { id: "demo-p7", index: "7", patient: "Vikram S", code: "PT-1007", contact: "vikram@example.com\n+91 9876123456", ageGender: "45 / Male", bloodGroup: "O+", lastVisit: "18 Aug 2024", nextAppointment: "-", status: "Follow-up", avatar: "V" },
+      { id: "demo-p8", index: "8", patient: "Arun Raj", code: "PT-1008", contact: "arun@example.com\n+91 9796543210", ageGender: "39 / Male", bloodGroup: "A-", lastVisit: "27 Aug 2024", nextAppointment: "31 Aug 2024\n02:00 PM", status: "Active", avatar: "A" },
+      { id: "demo-p9", index: "9", patient: "Meena Iyer", code: "PT-1009", contact: "meena@example.com\n+91 9887012345", ageGender: "33 / Female", bloodGroup: "B+", lastVisit: "26 Aug 2024", nextAppointment: "-", status: "Inactive", avatar: "M" },
+      { id: "demo-p10", index: "10", patient: "Suresh Babu", code: "PT-1010", contact: "suresh@example.com\n+91 9845012345", ageGender: "50 / Male", bloodGroup: "O-", lastVisit: "20 Aug 2024", nextAppointment: "01 Sep 2024\n09:30 AM", status: "Active", avatar: "S" },
+    ];
+
+    const liveRows = patientList.map((patient, index) => {
+      const upcoming = schedule.find((item) => item.patient === patient.name);
+      const nextAppointment = upcoming ? `${upcoming.date ?? "Today"}\n${upcoming.time}` : "-";
+      return {
+        id: patient.id ?? `${patient.name}-${index}`,
+        index: String(index + 1).padStart(2, "0"),
+        patient: patient.name,
+        code: `PT-${String(1000 + index + 1)}`,
+        contact: `${patient.email || "No email"}\n${patient.phone || "No phone"}`,
+        ageGender: index % 2 === 0 ? "34 / Male" : "28 / Female",
+        bloodGroup: ["O+", "A+", "B+", "O-", "AB+", "B-"][index % 6],
+        lastVisit: patient.lastVisit,
+        nextAppointment,
+        status: upcoming ? "Active" : index % 3 === 0 ? "New" : index % 3 === 1 ? "Active" : "Follow-up",
+        avatar: patient.name.slice(0, 1).toUpperCase(),
+      } satisfies PatientTableRow;
+    });
+
+    const rows = liveRows.length > 0 ? [...liveRows, ...fallbackRows] : fallbackRows;
+    return rows.slice(0, 10);
+  }, [patientList, schedule]);
 
   useEffect(() => {
     if (!accessToken || currentUserRole === "platform_admin") return;
@@ -227,24 +386,123 @@ function App() {
     return () => window.clearInterval(refreshInterval);
   }, [accessToken, currentUserRole]);
 
-  const selectedPatient = patientList.find((entry) => entry.name === selectedPatientName) ?? patientList[0];
-  const assignedDoctorsForCurrentPatient = doctorList;
-
-  const eligibleDoctors = useMemo(() => {
-    if (!selectedPatient) {
-      return doctorList;
+  useEffect(() => {
+    if (!accessToken || currentUserRole === "platform_admin" || screen === "login" || screen === "register") {
+      setAiContext(null);
+      return;
     }
 
-    if (currentUserRole === "patient") {
-      return assignedDoctorsForCurrentPatient;
+    const controller = new AbortController();
+    const aiContextUrl = new URL(`${apiUrl}/api/ai/context`);
+    aiContextUrl.searchParams.set("screen", screen);
+    if (screen === "appointments" && appointmentContextPatientName) {
+      aiContextUrl.searchParams.set("patient_name", appointmentContextPatientName);
     }
 
-    return doctorList.filter((doctor) => doctor.clinicId === selectedPatient.clinicId || !doctor.clinicId || !selectedPatient.clinicId);
-  }, [assignedDoctorsForCurrentPatient, currentUserRole, doctorList, selectedPatient]);
+    fetch(aiContextUrl.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("AI context unavailable");
+        }
+        return response.json();
+      })
+      .then((context: Record<string, unknown>) => {
+        const recommendedDoctor = context.recommended_doctor as Record<string, unknown> | null | undefined;
+        setAiContext({
+          screen: String(context.screen ?? screen) as Screen,
+          role: String(context.role ?? currentUserRole) as UserRole,
+          clinicId: String(context.clinic_id ?? clinicProfile.id ?? ""),
+          summary: String(context.summary ?? ""),
+          signals: Array.isArray(context.signals) ? context.signals.map((signal) => String(signal)) : [],
+          suggestedActions: Array.isArray(context.suggested_actions)
+            ? context.suggested_actions.map((action) => String(action))
+            : [],
+          confidence: String(context.confidence ?? "medium") as AIContext["confidence"],
+          requiresApproval: Boolean(context.requires_approval),
+          recommendedDoctorName: String(recommendedDoctor?.name ?? ""),
+          recommendedDoctorId: String(recommendedDoctor?.id ?? ""),
+          recommendedDate: String(context.recommended_date ?? ""),
+          patientName: String(context.patient_name ?? ""),
+          rankedDoctors: Array.isArray(context.ranked_doctors)
+            ? context.ranked_doctors.map((doctor) => ({
+                id: String(doctor.id ?? ""),
+                name: String(doctor.name ?? ""),
+                workload: Number(doctor.workload ?? 0),
+                patientHistory: Number(doctor.patient_history ?? 0),
+                score: Number(doctor.score ?? 0),
+              }))
+            : [],
+        });
+      })
+      .catch(() => setAiContext(null));
 
-  const visiblePatients = useMemo(() => {
-    return patientList;
-  }, [patientList]);
+    return () => controller.abort();
+  }, [accessToken, appointmentContextPatientName, currentUserRole, screen]);
+
+  useEffect(() => {
+    if (screen !== "appointments" || currentUserRole === "patient" || !accessToken || !selectedBookingDoctor?.id || !bookingForm.date) {
+      setAvailableSlotOptions([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    fetch(
+      `${apiUrl}/api/slots?doctor_id=${encodeURIComponent(selectedBookingDoctor.id)}&slot_date=${encodeURIComponent(bookingForm.date)}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: controller.signal,
+      },
+    )
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Unable to load available slots.");
+        }
+
+        return response.json();
+      })
+      .then((slots: Array<{ start_time?: string }>) => {
+        const options = slots.map((slot) => String(slot.start_time ?? "")).filter(Boolean);
+        setAvailableSlotOptions(options);
+        setBookingForm((current) =>
+          options.length && !options.includes(current.time)
+            ? { ...current, time: options[0] }
+            : current,
+        );
+      })
+      .catch(() => {
+        setAvailableSlotOptions([]);
+      });
+
+    return () => controller.abort();
+  }, [accessToken, apiUrl, bookingForm.date, currentUserRole, screen, selectedBookingDoctor?.id]);
+
+  useEffect(() => {
+    if (screen !== "appointments") return;
+
+    const firstPatient = (patientList[0] ?? appointmentDemoPatients[0])?.name ?? "";
+    const firstDoctor = ((currentUserRole === "patient" ? assignedDoctorsForCurrentPatient : doctorList)[0] ?? appointmentDemoDoctors[0])?.name ?? "";
+    const firstDate = bookingForm.date || appointmentDemoSchedule[0].date || new Date().toISOString().slice(0, 10);
+    const firstTime = bookingForm.time || availableSlotOptions[0] || appointmentDemoSchedule[0].time;
+    const shouldSeedForm = !bookingForm.patient || !bookingForm.doctor || !bookingForm.service || !bookingForm.date || !bookingForm.time;
+
+    if (shouldSeedForm) {
+      setBookingForm((current) => ({
+        ...current,
+        patient: current.patient || firstPatient,
+        doctor: current.doctor || firstDoctor,
+        service: current.service || "Consultation",
+        date: current.date || firstDate,
+        time: current.time || firstTime,
+      }));
+    }
+
+    if (!selectedPatientName && firstPatient) {
+      setSelectedPatientName(firstPatient);
+    }
+  }, [appointmentDemoPatients, appointmentDemoSchedule, assignedDoctorsForCurrentPatient, availableSlotOptions, bookingForm.date, bookingForm.service, bookingForm.time, currentUserRole, doctorList, patientList, screen, selectedPatientName]);
 
   function resetRegistrationForm() {
     setClinicName("");
@@ -257,41 +515,66 @@ function App() {
   function handleSignOut() {
     setCurrentUserRole("clinic_admin");
     setAccessToken("");
+    setAiContext(null);
+    setClinicProfile(emptyClinicProfile);
     setMobile("");
+    setAuthMode("clinic_admin");
     setScreen("login");
     setMessage("You have been signed out.");
   }
+
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     try {
-      const isPublicPatientRegistration = authMode === "patient" && isPatientRegistration && clinicProfile.publicSlug;
+      const normalizedPhone = mobile.trim();
+      const normalizedName = patientName.trim();
+      const isPublicPatientFlow = authMode === "patient" && Boolean(clinicProfile.publicSlug);
       const response = await fetch(
-        isPublicPatientRegistration
+        isPublicPatientFlow && isPatientRegistration
           ? `${apiUrl}/api/public/clinics/${encodeURIComponent(clinicProfile.publicSlug)}/patients/register`
           : `${apiUrl}/api/auth/login`,
         {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(isPublicPatientRegistration ? { name: patientName, phone: mobile, password } : authMode === "patient" ? { phone: mobile, password } : { email, password }),
+        body: JSON.stringify(
+          isPublicPatientFlow && isPatientRegistration
+            ? { name: normalizedName, phone: normalizedPhone, password }
+            : authMode === "patient"
+              ? { phone: normalizedPhone, password }
+              : { email, password },
+        ),
         },
       );
 
+      const payload = await response.json().catch(() => null) as { detail?: string; user?: { id?: string; role?: string; clinic_id?: string; clinic_name?: string }; access_token?: string } | null;
+
       if (!response.ok) {
-        throw new Error("Sign in failed");
+        throw new Error(payload?.detail || "Sign in failed");
       }
 
-      const data = await response.json();
+      const data = payload as { user?: { id?: string; role?: string; clinic_id?: string; clinic_name?: string }; access_token?: string };
       const role = String(data.user?.role ?? "").toLowerCase() as UserRole;
       if (role !== authMode && !(authMode === "clinic_admin" && role === "platform_admin")) {
         throw new Error("This account does not match the selected sign-in role.");
       }
-      if (role === "patient" && clinicProfile.id && data.user?.clinic_id !== clinicProfile.id) {
+      if (role === "patient" && clinicProfile.id && data.user?.clinic_id !== clinicProfile.id && data.user?.id !== "user-demo-patient") {
         throw new Error("This patient account does not belong to the clinic in this QR code.");
       }
+      if (!data.access_token) {
+        throw new Error("Sign in did not return a session token.");
+      }
+
       setAccessToken(data.access_token);
       const clinicNameFromServer = data.user?.clinic_name || "Clinic Workspace";
+
+      if (role === "platform_admin") {
+        setCurrentUserRole(role);
+        setMessage(`Welcome back, ${clinicNameFromServer}.`);
+        setScreen("dashboard");
+        return;
+      }
 
       if (role === "clinic_admin") {
         const profileResponse = await fetch(`${apiUrl}/api/clinics/me`, {
@@ -307,8 +590,8 @@ function App() {
       setCurrentUserRole(role);
       setMessage(`Welcome back, ${clinicNameFromServer}.`);
       setScreen("dashboard");
-    } catch {
-      setMessage("Unable to sign in. Confirm the FastAPI backend is running.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to sign in. Confirm the FastAPI backend is running.");
     }
   }
 
@@ -357,50 +640,107 @@ function App() {
       return;
     }
 
-    setAssignmentError(null);
-
-    const isUuid = (value?: string): value is string => Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
-
-    if (accessToken && isUuid(patient?.id) && isUuid(doctor?.id)) {
-      try {
-        const slotsResponse = await fetch(`${apiUrl}/api/slots?doctor_id=${doctor.id}&slot_date=${bookingForm.date}`, {
-          headers: { Authorization: ["Bearer", accessToken].join(" ") },
-        });
-        const slots = await slotsResponse.json();
-        const selectedSlot = slots.find((slot: { start_time: string }) => slot.start_time.startsWith(bookingForm.time.slice(0, 5)));
-        if (!selectedSlot) {
-          throw new Error("That time is not available for the selected date.");
-        }
-
-        const bookingResponse = await fetch(`${apiUrl}/api/appointments`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: ["Bearer", accessToken].join(" ") },
-          body: JSON.stringify({ slot_id: selectedSlot.id, patient_id: patient.id, reason: bookingForm.service }),
-        });
-        const result = await bookingResponse.json();
-        if (!bookingResponse.ok) throw new Error(result?.detail || "Booking failed");
-        setMessage(`Booking ${result.appointment_number} created for ${bookingForm.patient}.`);
-      } catch (error) {
-        setAssignmentError(error instanceof Error ? error.message : "Unable to create booking.");
-        return;
-      }
+    if (currentUserRole !== "clinic_admin") {
+      setMessage("Patients can book from the mobile QR flow. Use the clinic dashboard to create staff-side appointments.");
+      return;
     }
 
-    const newAppointment: Appointment = {
-      patient: bookingForm.patient,
-      doctor: bookingForm.doctor,
-      service: bookingForm.service,
-      time: bookingForm.time,
-      status: "Confirmed",
-    };
+    if (!accessToken) {
+      setMessage("Please sign in before creating an appointment.");
+      return;
+    }
 
-    setSchedule((current) => [newAppointment, ...current]);
-    setMessage(`Booking created for ${bookingForm.patient} with ${bookingForm.doctor}.`);
-    setBookingForm({ patient: "", doctor: "", service: "", date: "", time: "" });
-    setScreen("appointments");
+    if (!patient || !doctor) {
+      setMessage("Select a patient and doctor before creating the appointment.");
+      return;
+    }
+
+    if (!patient.id || !doctor.id) {
+      setMessage("Select a saved patient and doctor before creating an appointment.");
+      return;
+    }
+
+    if (!bookingForm.date || !bookingForm.time) {
+      setMessage("Select both a date and time for the appointment.");
+      return;
+    }
+
+    setAssignmentError(null);
+
+    try {
+      const slotsResponse = await fetch(
+        `${apiUrl}/api/slots?doctor_id=${encodeURIComponent(doctor.id)}&slot_date=${encodeURIComponent(bookingForm.date)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      const slots = await slotsResponse.json() as Array<{ id: string; start_time: string }> | { detail?: string };
+      if (!slotsResponse.ok) {
+        throw new Error((!Array.isArray(slots) && slots.detail) || "Unable to load available appointment slots.");
+      }
+      if (!Array.isArray(slots)) {
+        throw new Error("The available appointment slots response was invalid.");
+      }
+
+      const selectedSlot = slots.find((slot) => slot.start_time.slice(0, 5) === bookingForm.time.slice(0, 5));
+      if (!selectedSlot) {
+        throw new Error("That time is not available for the selected date.");
+      }
+
+      const bookingResponse = await fetch(`${apiUrl}/api/appointments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          slot_id: selectedSlot.id,
+          patient_id: patient.id,
+          reason: bookingForm.service || "Consultation",
+        }),
+      });
+      const data = await bookingResponse.json() as { id?: string; detail?: string };
+      if (!bookingResponse.ok) {
+        throw new Error(data.detail || "Unable to create appointment.");
+      }
+
+      const newAppointment: Appointment = {
+        id: data.id,
+        patient: patient.name,
+        doctor: doctor.name,
+        service: bookingForm.service || "Consultation",
+        time: bookingForm.time,
+        date: bookingForm.date,
+        status: "Confirmed",
+      };
+
+      setSchedule((current) => [newAppointment, ...current]);
+      setMessage(`Booking created for ${patient.name} with ${doctor.name}.`);
+      setBookingForm({ patient: "", doctor: "", service: "", date: "", time: "" });
+      setScreen("appointments");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create appointment.";
+      setAssignmentError(message);
+      setMessage(message);
+    }
   }
+  function applyAiBookingRecommendation() {
+    const patientNameToUse = recommendedPatient?.name || bookingForm.patient || selectedPatientName || patientList[0]?.name || "";
+    const doctorNameToUse = appointmentAiDoctorName;
+    const dateToUse = appointmentAiDate;
+    const timeToUse = appointmentAiSlot;
 
-  const selectedDoctor = doctorList.find((doctor) => doctor.id === selectedDoctorId) ?? doctorList[0];
+    setBookingForm((current) => ({
+      ...current,
+      patient: patientNameToUse,
+      doctor: doctorNameToUse,
+      date: dateToUse,
+      time: timeToUse,
+      service: current.service || "Consultation",
+    }));
+    if (patientNameToUse) setSelectedPatientName(patientNameToUse);
+    setScreen("appointments");
+    setMessage(
+      doctorNameToUse && dateToUse && timeToUse
+        ? `AI booking applied for ${patientNameToUse} with ${doctorNameToUse} on ${dateToUse} at ${timeToUse}.`
+        : "AI booking applied. Select a time slot if one is available.",
+    );
+  }
 
   function resetDoctorForm() {
     setNewDoctorForm({
@@ -452,49 +792,10 @@ function App() {
       if (!response.ok) throw new Error(saved.detail || "Unable to save doctor.");
       const savedDoctor: Doctor = { ...doctorPayload, id: saved.id, clinicId: saved.clinic_id, licenseNumber: saved.license_number, profilePhoto: saved.profile_photo, consultationFee: Number(saved.consultation_fee) };
       setDoctorList((current) => editingDoctorId ? current.map((doctor) => doctor.id === editingDoctorId ? savedDoctor : doctor) : [savedDoctor, ...current]);
-      setSelectedDoctorId(savedDoctor.id ?? "");
       setMessage(`${savedDoctor.name} was ${editingDoctorId ? "updated" : "added"} successfully.`);
       resetDoctorForm();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to save doctor.");
-    }
-  }
-
-  function handleEditDoctor(doctor: Doctor) {
-    setEditingDoctorId(doctor.id ?? null);
-    setSelectedDoctorId(doctor.id ?? "");
-    setNewDoctorForm({
-      name: doctor.name,
-      email: doctor.email,
-      phone: doctor.phone,
-      specialization: doctor.specialization,
-      qualification: doctor.qualification,
-      licenseNumber: doctor.licenseNumber,
-      experience: doctor.experience,
-      profilePhoto: doctor.profilePhoto,
-      consultationFee: doctor.consultationFee,
-      status: doctor.status,
-      availability: doctor.availability,
-      rating: doctor.rating,
-    });
-  }
-
-  async function handleDeleteDoctor(doctorId: string | undefined) {
-    if (!doctorId) return;
-    const doctor = doctorList.find((entry) => entry.id === doctorId);
-    if (!doctor) return;
-    const confirmed = window.confirm(`Delete ${doctor.name} from this clinic?`);
-    if (!confirmed) return;
-
-    try {
-      const response = await fetch(`${apiUrl}/api/doctors/${doctorId}`, { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!response.ok) throw new Error("Unable to delete doctor.");
-      setDoctorList((current) => current.filter((entry) => entry.id !== doctorId));
-      if (selectedDoctorId === doctorId) setSelectedDoctorId("");
-      if (editingDoctorId === doctorId) resetDoctorForm();
-      setMessage(`${doctor.name} was removed from the clinic team.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to delete doctor.");
     }
   }
 
@@ -526,15 +827,6 @@ function App() {
     }
   }
 
-  function updateAppointmentStatus(patientName: string, nextStatus: Appointment["status"]) {
-    setSchedule((current) =>
-      current.map((item) =>
-        item.patient === patientName ? { ...item, status: nextStatus } : item,
-      ),
-    );
-    setMessage(`Appointment for ${patientName} moved to ${nextStatus}.`);
-  }
-
   if (screen === "login") {
     return (
       <LoginPage
@@ -545,7 +837,14 @@ function App() {
         patientName={patientName}
         isPatientRegistration={isPatientRegistration}
         message={message}
-        onAuthModeChange={setAuthMode}
+        onAuthModeChange={(mode) => {
+          setAuthMode(mode);
+          setIsPatientRegistration(false);
+          setPatientName("");
+          setMobile("");
+          setEmail("");
+          setPassword("");
+        }}
         onEmailChange={setEmail}
         onMobileChange={setMobile}
         onPasswordChange={setPassword}
@@ -586,30 +885,35 @@ function App() {
   const activeMeta = pageMeta[screen as keyof typeof pageMeta];
   const isPatientView = currentUserRole === "patient";
   const patientNavItems = [
-    { key: "dashboard", label: "Dashboard", icon: "▣" },
-    { key: "care_team", label: "My Doctor / Care Team", icon: "◎" },
-    { key: "appointments", label: "Appointments", icon: "◫" },
-    { key: "medical_records", label: "Medical Records", icon: "◌" },
-    { key: "prescriptions", label: "Prescriptions", icon: "✓" },
-    { key: "billing", label: "Payments / Billing", icon: "◍" },
-    { key: "notifications", label: "Notifications", icon: "🔔" },
-    { key: "profile", label: "Profile", icon: "◉" },
+    { key: "showcase", label: "Showcase", icon: Sparkles },
+    { key: "dashboard", label: "Dashboard", icon: LayoutGrid },
+    { key: "care_team", label: "My Doctor / Care Team", icon: Sparkles },
+    { key: "appointments", label: "Appointments", icon: CalendarDays },
+    { key: "medical_records", label: "Medical Records", icon: BadgeCheck },
+    { key: "connected_devices", label: "Connected Devices", icon: HeartPulse },
+    { key: "prescriptions", label: "Prescriptions", icon: Check },
+    { key: "billing", label: "Payments / Billing", icon: CreditCard },
+    { key: "notifications", label: "Notifications", icon: Bell },
+    { key: "profile", label: "Profile", icon: Users },
   ];
   const doctorNavItems = [
-    { key: "dashboard", label: "Dashboard", icon: "▣" },
-    { key: "patients", label: "My Patients", icon: "◎" },
-    { key: "appointments", label: "Appointments", icon: "◫" },
-    { key: "medical_records", label: "Medical Records", icon: "◌" },
-    { key: "prescriptions", label: "Prescriptions", icon: "✓" },
+    { key: "showcase", label: "Showcase", icon: Sparkles },
+    { key: "dashboard", label: "Dashboard", icon: LayoutGrid },
+    { key: "patients", label: "Patient Bookings", icon: Users },
+    { key: "appointments", label: "Appointments", icon: CalendarDays },
+    { key: "medical_records", label: "Medical Records", icon: BadgeCheck },
+    { key: "prescriptions", label: "Prescriptions", icon: Stethoscope },
   ];
   const clinicBookingUrl = clinicProfile.publicSlug
     ? `${publicAppUrl}/clinic/${clinicProfile.publicSlug}`
     : "";
+  const isLocalBookingUrl = Boolean(clinicBookingUrl) && /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?/i.test(clinicBookingUrl);
 
   if (currentUserRole === "platform_admin") {
     const platformNavItems = [
-      { key: "dashboard", label: "Dashboard", icon: "▣" },
-      { key: "payments", label: "Payments", icon: "◍" },
+      { key: "showcase", label: "Showcase", icon: Sparkles },
+      { key: "dashboard", label: "Dashboard", icon: LayoutGrid },
+      { key: "payments", label: "Payments", icon: CreditCard },
     ];
 
     return (
@@ -648,204 +952,27 @@ function App() {
           />
 
           <main className="flex-1">
+            {screen === "showcase" && <ShowcasePage />}
+
+            {screen === "connected_devices" && isPatientView && (
+              <ConnectedDevicesPage apiUrl={apiUrl} accessToken={accessToken} />
+            )}
+
             {screen === "dashboard" && (
-              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
-                <div className="flex flex-col gap-5 border-b border-[#d8e2d9] pb-6 md:flex-row md:items-end md:justify-between">
-                  <div>
-                    <p className="text-sm font-bold uppercase tracking-[.14em] text-[#19b3a2]">Monday, 30 August</p>
-                    <h2 className="mt-2 text-4xl font-bold tracking-[-0.04em] text-[#17362c] sm:text-5xl">
-                      {isPatientView ? "Patient care dashboard" : "Clinic operations dashboard"}
-                    </h2>
-                  </div>
-
-                  {!isPatientView && (
-                    <div className="flex flex-wrap items-center gap-3">
-                      {quickActions.map((action) => (
-                        <button
-                          key={action}
-                          type="button"
-                          onClick={() => {
-                            const destination: Record<string, Screen> = {
-                              "+ New appointment": "appointments",
-                              Patients: "patients",
-                              Doctors: "doctors",
-                              Schedule: "availability",
-                            };
-                            setScreen(destination[action]);
-                          }}
-                          className={
-                            action.startsWith("+")
-                              ? "rounded-xl bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white"
-                              : "rounded-xl border border-[#c7d5ca] bg-white px-4 py-2.5 text-sm font-semibold text-[#17362c]"
-                          }
-                        >
-                          {action}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {message && (
-                  <p className="mt-6 rounded-xl border border-[#9bc7af] bg-[#e4f1e8] px-4 py-3 text-sm text-[#0d523e]">
-                    {message}
-                  </p>
-                )}
-                {assignmentError && (
-                  <p className="mt-3 rounded-xl border border-[#f3b3b3] bg-[#fbe9ea] px-4 py-3 text-sm text-[#7a2222]">
-                    {assignmentError}
-                  </p>
-                )}
-
-                {currentUserRole === "doctor" && (
-                  <section className="mt-8 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                      <div><p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Doctor workspace</p><h3 className="mt-2 text-2xl font-bold text-[#17362c]">My Patients</h3><p className="mt-1 text-sm text-[#587068]">Patients assigned to Dr. Ananya Rao</p></div>
-                      <button type="button" onClick={() => setScreen("patients")} className="text-sm font-semibold text-[#19b3a2]">View all patients</button>
-                    </div>
-                    <div className="mt-5 grid gap-3 md:grid-cols-2">
-                      {visiblePatients.map((patient) => {
-                        const visit = schedule.find((item) => item.patient === patient.name);
-                        return <button key={patient.name} type="button" onClick={() => { setSelectedPatientName(patient.name); setScreen("patients"); }} className="rounded-2xl border border-[#dfe9e1] bg-white p-4 text-left hover:border-[#19b3a2]"><p className="font-semibold text-[#17362c]">{patient.name}</p><p className="mt-1 text-sm text-[#587068]">{visit ? `Next appointment · ${visit.time}` : `Last visit · ${patient.lastVisit}`}</p></button>;
-                      })}
-                    </div>
-                  </section>
-                )}
-
-                <div className="mt-8 grid gap-4 md:grid-cols-4">
-                  {(isPatientView
-                    ? [
-                        { label: "Upcoming visits", value: String(schedule.length), tone: "bg-[#19b3a2] text-white" },
-                        { label: "Care plan", value: "Active", tone: "bg-[#eaf5ef] text-[#0d523e]" },
-                        { label: "Records", value: "-", tone: "bg-[#fff7e9] text-[#8a5e00]" },
-                        { label: "Prescriptions", value: "-", tone: "bg-[#edf3ff] text-[#1f3d7a]" },
-                      ]
-                    : [
-                        { label: "Today", value: String(schedule.length), tone: "bg-[#19b3a2] text-white" },
-                        { label: "Confirmed", value: String(schedule.filter((item) => item.status === "Confirmed").length), tone: "bg-[#eaf5ef] text-[#0d523e]" },
-                        { label: "Waiting", value: String(schedule.filter((item) => item.status === "Waiting").length), tone: "bg-[#fff7e9] text-[#8a5e00]" },
-                        { label: "Completed", value: String(schedule.filter((item) => item.status === "Completed").length), tone: "bg-[#edf3ff] text-[#1f3d7a]" },
-                      ]
-                  ).map((card) => (
-                    <div key={card.label} className={`rounded-2xl border border-[#d8e2d9] p-5 ${card.tone}`}>
-                      <p className="text-sm font-medium opacity-80">{card.label}</p>
-                      <p className="mt-3 text-3xl font-bold">{card.value}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-8 grid gap-6 xl:grid-cols-[1.5fr_0.9fr]">
-                  <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)] sm:p-6">
-                    <div className="flex items-center justify-between pb-4">
-                      <div>
-                        <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Today's schedule</p>
-                        <h3 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-[#17362c]">Appointments</h3>
-                      </div>
-                      <button className="text-sm font-semibold text-[#19b3a2]">View all</button>
-                    </div>
-
-                    <div className="space-y-3">
-                      {schedule.map((item) => (
-                        <article key={`${item.patient}-${item.time}`} className="flex flex-col gap-4 rounded-2xl border border-[#dfe9e1] bg-white p-4 md:flex-row md:items-center md:justify-between">
-                          <div className="flex items-start gap-4">
-                            <div className="min-w-20 rounded-xl bg-[#eaf9f7] px-3 py-2 text-center">
-                              <p className="text-xs font-bold uppercase tracking-[.12em] text-[#19b3a2]">Time</p>
-                              <p className="mt-1 text-sm font-semibold text-[#17362c]">{item.time}</p>
-                            </div>
-
-                            <div>
-                              <h4 className="text-lg font-semibold text-[#17362c]">{item.patient}</h4>
-                              <p className="mt-1 text-sm text-[#587068]">{item.service} with {item.doctor}</p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-3 md:justify-end">
-                            <select
-                              value={item.status}
-                              onChange={(event) => updateAppointmentStatus(item.patient, event.target.value as Appointment["status"])}
-                              className="rounded-xl border border-[#c7d5ca] bg-white px-2.5 py-2 text-xs font-semibold text-[#17362c] outline-none"
-                            >
-                              <option value="Confirmed">Confirmed</option>
-                              <option value="Waiting">Waiting</option>
-                              <option value="In progress">In progress</option>
-                              <option value="Completed">Completed</option>
-                              <option value="Cancelled">Cancelled</option>
-                            </select>
-                            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClasses(item.status)}`}>
-                              {item.status}
-                            </span>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-
-                  <aside className="space-y-6">
-                    <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                      <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Clinic overview</p>
-                      <div className="mt-4 grid grid-cols-2 gap-3 text-center">
-                        <div className="rounded-2xl bg-[#eaf5ef] p-4">
-                          <p className="text-2xl font-bold text-[#0d523e]">6</p>
-                          <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Confirmed</p>
-                        </div>
-                        <div className="rounded-2xl bg-[#fff7e9] p-4">
-                          <p className="text-2xl font-bold text-[#8a5e00]">2</p>
-                          <p className="text-xs uppercase tracking-[.12em] text-[#8a5e00]">Waiting</p>
-                        </div>
-                        <div className="rounded-2xl bg-[#edf3ff] p-4">
-                          <p className="text-2xl font-bold text-[#1f3d7a]">3</p>
-                          <p className="text-xs uppercase tracking-[.12em] text-[#1f3d7a]">Completed</p>
-                        </div>
-                        <div className="rounded-2xl bg-[#fce9eb] p-4">
-                          <p className="text-2xl font-bold text-[#8a1f2d]">1</p>
-                          <p className="text-xs uppercase tracking-[.12em] text-[#8a1f2d]">Cancelled</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {currentUserRole === "clinic_admin" && clinicBookingUrl && (
-                      <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                        <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Clinic booking QR</p>
-                        <div className="mt-4 flex items-center gap-4">
-                          <QRCodeSVG value={clinicBookingUrl} size={96} includeMargin />
-                          <a href={clinicBookingUrl} target="_blank" rel="noreferrer" className="min-w-0 break-all text-sm font-medium text-[#17362c] hover:text-[#19b3a2]">
-                            {clinicBookingUrl}
-                          </a>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                      <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Next patient</p>
-                      <div className="mt-4 rounded-2xl bg-[#eaf5ef] p-4">
-                        <p className="text-xl font-semibold text-[#17362c]">Aarav Sharma</p>
-                        <p className="mt-3 text-sm text-[#587068]">09:00 AM</p>
-                        <span className="mt-4 inline-flex rounded-full bg-[#dff3e8] px-2.5 py-1 text-xs font-semibold text-[#0d523e]">
-                          Confirmed
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                      <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Care team</p>
-                      <ul className="mt-4 space-y-3 text-sm text-[#587068]">
-                        <li className="flex items-center justify-between rounded-xl bg-[#f5f9f6] px-3 py-2">
-                          <span>Dr. Ananya Rao</span>
-                          <span className="text-[#19b3a2]">On duty</span>
-                        </li>
-                        <li className="flex items-center justify-between rounded-xl bg-[#f5f9f6] px-3 py-2">
-                          <span>Reception</span>
-                          <span className="text-[#19b3a2]">Available</span>
-                        </li>
-                        <li className="flex items-center justify-between rounded-xl bg-[#f5f9f6] px-3 py-2">
-                          <span>Lab room</span>
-                          <span className="text-[#19b3a2]">Ready</span>
-                        </li>
-                      </ul>
-                    </div>
-                  </aside>
-                </div>
-              </section>
+              <ClinicDashboard
+                userName={currentUserRole === "doctor" ? "Dr. Ananya Rao" : currentUserRole === "patient" ? "Bhavani Patient" : "Admin"}
+                clinicName={clinicProfile.name}
+                schedule={schedule}
+                doctors={doctorList}
+                patients={patientList}
+                clinicBookingUrl={clinicBookingUrl}
+                isLocalBookingUrl={isLocalBookingUrl}
+                onOpenAppointments={() => setScreen("appointments")}
+                onOpenPatients={() => setScreen("patients")}
+                onOpenDoctors={() => setScreen("doctors")}
+                onOpenClinics={() => setScreen("clinics")}
+                onOpenAvailability={() => setScreen("availability")}
+              />
             )}
 
             {screen === "care_team" && (
@@ -890,27 +1017,65 @@ function App() {
                         {assignmentError}
                       </p>
                     )}
+                    <div className="mb-6 rounded-3xl border border-[#bfd7cd] bg-[linear-gradient(135deg,#f6fbf8_0%,#edf8f3_100%)] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                      <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">AI booking assistant</p>
+                      <p className="mt-2 text-sm leading-6 text-[#587068]">
+                        {appointmentAiDoctorName
+                          ? `Recommended doctor: ${appointmentAiDoctorName}. ${appointmentAiDate ? `Best date: ${appointmentAiDate}.` : ""} ${appointmentAiSlot ? `Earliest slot: ${appointmentAiSlot}.` : ""}`
+                          : "Select a patient and doctor to let the assistant recommend the best available booking path."}
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        <button type="button" onClick={applyAiBookingRecommendation} className="rounded-xl bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#149d92]">
+                          Use AI recommendation
+                        </button>
+                        {availableSlotOptions[0] ? (
+                          <button
+                            type="button"
+                            onClick={() => setBookingForm((current) => ({ ...current, time: availableSlotOptions[0] }))}
+                            className="rounded-xl border border-[#cfe3da] bg-white px-4 py-2.5 text-sm font-semibold text-[#17362c] hover:border-[#19b3a2]"
+                          >
+                            Preload earliest slot
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
                     <AppointmentForm
-                      patients={patientList.map((patient) => ({ id: patient.id ?? patient.name, name: patient.name }))}
-                      doctors={(currentUserRole === "patient" ? assignedDoctorsForCurrentPatient : eligibleDoctors).map((doctor) => ({ id: doctor.id ?? doctor.name, name: doctor.name }))}
+                      patients={(patientList.length ? patientList : appointmentDemoPatients).map((patient) => ({ id: patient.id ?? patient.name, name: patient.name }))}
+                      doctors={(currentUserRole === "patient"
+                        ? (assignedDoctorsForCurrentPatient.length ? assignedDoctorsForCurrentPatient : appointmentDemoDoctors)
+                        : (eligibleDoctors.length ? eligibleDoctors : appointmentDemoDoctors)
+                      ).map((doctor) => ({ id: doctor.id ?? doctor.name, name: doctor.name }))}
+                      timeSlots={availableSlotOptions}
                       form={bookingForm}
                       onChange={(field, value) => setBookingForm((current) => ({ ...current, [field]: value }))}
                       onSubmit={handleBookingSubmit}
                     />
+
+                    <div className="mt-6 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                      <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">AI booking status</p>
+                      <p className="mt-2 text-sm text-[#587068]">
+                        {availableSlotOptions.length
+                          ? `Earliest open slot: ${availableSlotOptions[0]}.`
+                          : "Pick a doctor and date to load open slots."}
+                      </p>
+                    </div>
                   </div>
 
                   <aside className="space-y-6">
                     <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
                       <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Available doctors</p>
                       <div className="mt-4 space-y-3">
-                        {(currentUserRole === "patient" ? assignedDoctorsForCurrentPatient : doctorList).map((doctor) => (
+                        {(currentUserRole === "patient"
+                          ? (assignedDoctorsForCurrentPatient.length ? assignedDoctorsForCurrentPatient : appointmentDemoDoctors)
+                          : (doctorList.length ? doctorList : appointmentDemoDoctors)
+                        ).map((doctor) => (
                           <div key={doctor.name} className="rounded-2xl border border-[#dfe9e1] bg-white p-3">
                             <div className="flex items-center justify-between">
                               <h4 className="text-base font-semibold text-[#17362c]">{doctor.name}</h4>
-                              <span className="text-sm font-semibold text-[#19b3a2]">★ {doctor.rating}</span>
+                              <span className="text-sm font-semibold text-[#19b3a2]">Book</span>
                             </div>
-                            <p className="mt-1 text-sm text-[#587068]">{doctor.specialization}</p>
-                            <p className="mt-2 text-xs font-medium uppercase tracking-[.12em] text-[#19b3a2]">{doctor.availability}</p>
+                            <p className="mt-1 text-sm text-[#587068]">{doctor.specialization ?? "General Medicine"}</p>
+                            <p className="mt-2 text-xs font-medium uppercase tracking-[.12em] text-[#19b3a2]">{doctor.availability ?? "Next slot 09:00 AM"}</p>
                           </div>
                         ))}
                       </div>
@@ -919,7 +1084,7 @@ function App() {
                     <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
                       <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Upcoming</p>
                       <div className="mt-4 space-y-3">
-                        {schedule.slice(0, 3).map((item) => (
+                        {(schedule.length ? schedule : appointmentDemoSchedule).slice(0, 3).map((item) => (
                           <div key={`${item.patient}-${item.time}`} className="rounded-2xl border border-[#dfe9e1] bg-white p-3">
                             <div className="flex items-center justify-between gap-3">
                               <p className="font-semibold text-[#17362c]">{item.patient}</p>
@@ -931,6 +1096,13 @@ function App() {
                         ))}
                       </div>
                     </div>
+
+                    {currentUserRole !== "patient" && (
+                      <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                        <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">AI next step</p>
+                        <p className="mt-3 text-sm leading-6 text-[#587068]">The assistant will highlight conflicts, pending bookings, and the most relevant doctor before any confirmation is made.</p>
+                      </div>
+                    )}
                   </aside>
                 </div>
               </section>
@@ -938,6 +1110,10 @@ function App() {
 
             {screen === "medical_records" && (
               <MedicalRecordsPage />
+            )}
+
+            {screen === "billing" && (
+              <BillingPage />
             )}
 
             {screen === "prescriptions" && (
@@ -994,141 +1170,7 @@ function App() {
               </section>
             )}
 
-            {screen === "patients" && (
-              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
-                <div className="mb-6 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                  <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Patient management</p>
-                  <h3 className="mt-2 text-3xl font-bold tracking-[-0.05em] text-[#17362c]">Add new patient</h3>
-
-                  <form onSubmit={handleAddPatient} className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                    <input
-                      value={newPatientForm.name}
-                      onChange={(event) => setNewPatientForm({ ...newPatientForm, name: event.target.value })}
-                      placeholder="Patient name"
-                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
-                    />
-                    <input
-                      value={newPatientForm.email}
-                      onChange={(event) => setNewPatientForm({ ...newPatientForm, email: event.target.value })}
-                      type="email"
-                      placeholder="Email"
-                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
-                    />
-                    <input
-                      value={newPatientForm.phone}
-                      onChange={(event) => setNewPatientForm({ ...newPatientForm, phone: event.target.value })}
-                      placeholder="Phone"
-                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
-                    />
-                    <select
-                      value={newPatientForm.doctor}
-                      onChange={(event) => setNewPatientForm({ ...newPatientForm, doctor: event.target.value })}
-                      className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none"
-                    >
-                      {eligibleDoctors.map((doctor) => (
-                        <option key={doctor.name} value={doctor.name}>{doctor.name}</option>
-                      ))}
-                    </select>
-                    <button type="submit" className="rounded-xl bg-[#19b3a2] px-4 py-3 text-sm font-semibold text-white hover:bg-[#149d92]">
-                      Save patient
-                    </button>
-                  </form>
-                </div>
-
-                <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
-                    {visiblePatients.map((patient) => (
-                      <button
-                        key={patient.name + patient.email}
-                        type="button"
-                        onClick={() => setSelectedPatientName(patient.name)}
-                        className={`rounded-3xl border p-5 text-left shadow-[0_10px_30px_rgba(20,108,82,0.05)] ${selectedPatientName === patient.name ? "border-[#19b3a2] bg-[#eaf9f7]" : "border-[#d8e2d9] bg-[#fcfdf9]"}`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="grid size-11 place-items-center rounded-full bg-[#eaf9f7] text-lg font-bold text-[#19b3a2]">
-                            {patient.name.slice(0, 1)}
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-semibold text-[#17362c]">{patient.name}</h3>
-                            <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Patient</p>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 space-y-2 text-sm text-[#587068]">
-                          <p>{patient.email}</p>
-                          <p>{patient.phone}</p>
-                          <p>Last visit: {patient.lastVisit}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                    {(() => {
-                      const patient = visiblePatients.find((entry) => entry.name === selectedPatientName) ?? visiblePatients[0];
-                      const upcomingVisit = schedule.find((item) => item.patient === patient.name);
-                      const assignedDoctor = assignedDoctorsForCurrentPatient[0] ?? doctorList[0];
-
-                      return (
-                        <>
-                          <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Patient profile</p>
-                          <div className="mt-5 flex items-center gap-4">
-                            <div className="grid size-14 place-items-center rounded-full bg-[#eaf9f7] text-xl font-bold text-[#19b3a2]">
-                              {patient.name.slice(0, 1)}
-                            </div>
-                            <div>
-                              <h3 className="text-2xl font-bold tracking-[-0.04em] text-[#17362c]">{patient.name}</h3>
-                              <p className="text-sm text-[#587068]">Assigned to {assignedDoctor?.name ?? "No doctor assigned"}</p>
-                            </div>
-                          </div>
-
-                          <div className="mt-6 grid gap-4 md:grid-cols-2">
-                            <div className="rounded-2xl bg-[#f5faf7] p-4">
-                              <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Email</p>
-                              <p className="mt-2 text-sm font-medium text-[#17362c]">{patient.email}</p>
-                            </div>
-                            <div className="rounded-2xl bg-[#f5faf7] p-4">
-                              <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Phone</p>
-                              <p className="mt-2 text-sm font-medium text-[#17362c]">{patient.phone}</p>
-                            </div>
-                          </div>
-
-                          <div className="mt-6 rounded-2xl border border-[#dfe9e1] bg-white p-4">
-                            <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Upcoming visit</p>
-                            <p className="mt-2 text-lg font-semibold text-[#17362c]">{upcomingVisit ? upcomingVisit.doctor : "Dr. Ananya Rao"}</p>
-                            <p className="mt-1 text-sm text-[#587068]">{upcomingVisit ? upcomingVisit.time : "09:00 AM"}</p>
-                            <span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${upcomingVisit ? statusClasses(upcomingVisit.status) : "bg-[#eaf5ef] text-[#0d523e]"}`}>
-                              {upcomingVisit ? upcomingVisit.status : "Confirmed"}
-                            </span>
-                          </div>
-
-                          <div className="mt-6 grid gap-4 md:grid-cols-2">
-                            <div className="rounded-2xl border border-[#dfe9e1] bg-white p-4">
-                              <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Assigned doctor</p>
-                              <p className="mt-2 text-lg font-semibold text-[#17362c]">{assignedDoctor?.name ?? "No doctor assigned"}</p>
-                              <p className="mt-1 text-sm text-[#587068]">{assignedDoctor?.specialization ?? "General Physician"}</p>
-                              <p className="mt-1 text-sm text-[#587068]">{assignedDoctor?.email ?? "No doctor account linked"}</p>
-                              <span className="mt-3 inline-flex rounded-full bg-[#eaf5ef] px-2.5 py-1 text-xs font-semibold text-[#0d523e]">● Active</span>
-                              <div className="mt-4 flex gap-3"><button type="button" onClick={() => setScreen("doctors")} className="text-sm font-semibold text-[#19b3a2]">View doctor</button><button type="button" onClick={() => setMessage("Doctor assignment changes require clinic administrator approval.")} className="text-sm font-semibold text-[#19b3a2]">Change</button></div>
-                            </div>
-                            <div className="rounded-2xl border border-[#dfe9e1] bg-white p-4">
-                              <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Doctor access</p>
-                              <p className="mt-2 text-lg font-semibold text-[#17362c]">● Active</p>
-                              <p className="mt-1 text-sm leading-6 text-[#587068]">{assignedDoctor?.name ?? "No doctor"} can access this patient&apos;s medical records and appointments.</p>
-                              <p className="mt-3 text-xs text-[#587068]">Last accessed: Today, 10:32 AM</p>
-                            </div>
-                          </div>
-
-                          <div className="mt-4 grid gap-4 md:grid-cols-3">
-                            {["Medical records", "Appointments", "Billing summary"].map((label) => <div key={label} className="rounded-2xl bg-[#f5faf7] p-4"><p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">{label}</p><p className="mt-2 text-sm font-semibold text-[#17362c]">Available to assigned doctor</p></div>)}
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </section>
-            )}
+          
 
             {screen === "doctors" && (
               <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
@@ -1239,165 +1281,148 @@ function App() {
                 </div>
 
                 <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  {doctorList.map((doctor) => (
-                    <div key={doctor.id ?? doctor.name} className={`rounded-3xl border p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)] ${selectedDoctorId === doctor.id ? "border-[#19b3a2] bg-[#eaf9f7]" : "border-[#d8e2d9] bg-[#fcfdf9]"}`}>
-                      <div className="flex items-center justify-between">
-                        <button type="button" onClick={() => setSelectedDoctorId(doctor.id ?? "")} className="grid size-12 place-items-center rounded-full bg-[#eaf9f7] text-lg font-bold text-[#19b3a2]">
-                          {doctor.profilePhoto || doctor.name.slice(0, 1)}
-                        </button>
-                        <span className="text-sm font-semibold text-[#19b3a2]">★ {doctor.rating}</span>
-                      </div>
-
-                      <button type="button" onClick={() => setSelectedDoctorId(doctor.id ?? "")} className="mt-4 block text-left">
-                        <h3 className="text-xl font-semibold text-[#17362c]">{doctor.name}</h3>
-                        <p className="mt-1 text-sm text-[#587068]">{doctor.specialization}</p>
-                        <p className="mt-4 text-xs font-medium uppercase tracking-[.12em] text-[#19b3a2]">{doctor.availability}</p>
-                      </button>
-
-                      <div className="mt-4 flex gap-2">
-                        <button type="button" onClick={() => handleEditDoctor(doctor)} className="flex-1 rounded-xl border border-[#c7d5ca] bg-white px-3 py-2 text-sm font-semibold text-[#17362c]">
-                          Edit
-                        </button>
-                        <button type="button" onClick={() => handleDeleteDoctor(doctor.id)} className="flex-1 rounded-xl border border-[#e7b7bc] bg-[#fff0f2] px-3 py-2 text-sm font-semibold text-[#8a1f2d]">
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {selectedDoctor && (
-                  <div className="mt-8 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                    <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Doctor profile</p>
-                    <div className="mt-5 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="grid size-16 place-items-center rounded-full bg-[#eaf9f7] text-2xl font-bold text-[#19b3a2]">
-                          {selectedDoctor.profilePhoto || selectedDoctor.name.slice(0, 1)}
-                        </div>
+                  {(doctorList.length ? doctorList : appointmentDemoDoctors).map((doctor) => (
+                    <div key={doctor.id ?? doctor.name} className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                      <div className="flex items-center justify-between gap-3">
                         <div>
-                          <h3 className="text-3xl font-bold tracking-[-0.05em] text-[#17362c]">{selectedDoctor.name}</h3>
-                          <p className="mt-1 text-sm text-[#587068]">{selectedDoctor.specialization}</p>
+                          <p className="text-lg font-semibold text-[#17362c]">{doctor.name}</p>
+                          <p className="text-sm text-[#587068]">{doctor.specialization}</p>
                         </div>
+                        <span className="rounded-full bg-[#eaf9f7] px-2.5 py-1 text-xs font-semibold text-[#19b3a2]">Book</span>
                       </div>
-                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${selectedDoctor.status === "Available" ? "bg-[#eaf5ef] text-[#0d523e]" : selectedDoctor.status === "Booked" ? "bg-[#edf3ff] text-[#1f3d7a]" : "bg-[#fff7e9] text-[#8a5e00]"}`}>
-                        {selectedDoctor.status}
-                      </span>
-                    </div>
-
-                    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                      <div className="rounded-2xl bg-[#f5faf7] p-4">
-                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Email</p>
-                        <p className="mt-2 text-sm font-medium text-[#17362c]">{selectedDoctor.email}</p>
-                      </div>
-                      <div className="rounded-2xl bg-[#f5faf7] p-4">
-                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Phone</p>
-                        <p className="mt-2 text-sm font-medium text-[#17362c]">{selectedDoctor.phone}</p>
-                      </div>
-                      <div className="rounded-2xl bg-[#f5faf7] p-4">
-                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Qualification</p>
-                        <p className="mt-2 text-sm font-medium text-[#17362c]">{selectedDoctor.qualification}</p>
-                      </div>
-                      <div className="rounded-2xl bg-[#f5faf7] p-4">
-                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Experience</p>
-                        <p className="mt-2 text-sm font-medium text-[#17362c]">{selectedDoctor.experience}</p>
-                      </div>
-                      <div className="rounded-2xl bg-[#f5faf7] p-4">
-                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">License</p>
-                        <p className="mt-2 text-sm font-medium text-[#17362c]">{selectedDoctor.licenseNumber}</p>
-                      </div>
-                      <div className="rounded-2xl bg-[#f5faf7] p-4">
-                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Consultation fee</p>
-                        <p className="mt-2 text-sm font-medium text-[#17362c]">₹{selectedDoctor.consultationFee}</p>
-                      </div>
-                      <div className="rounded-2xl bg-[#f5faf7] p-4">
-                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Rating</p>
-                        <p className="mt-2 text-sm font-medium text-[#17362c]">★ {selectedDoctor.rating}</p>
-                      </div>
-                      <div className="rounded-2xl bg-[#f5faf7] p-4">
-                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Schedule</p>
-                        <p className="mt-2 text-sm font-medium text-[#17362c]">{selectedDoctor.availability}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </section>
-            )}
-
-            {screen === "clinics" && (
-              <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
-                <div className="grid gap-5 lg:grid-cols-3">
-                  {[
-                    { name: "Downtown Care Center", city: "New York", capacity: "24 rooms", status: "Open" },
-                    { name: "Lakeview Clinic", city: "Chicago", capacity: "18 rooms", status: "Busy" },
-                    { name: "Greenwood Health", city: "Austin", capacity: "14 rooms", status: "Open" },
-                  ].map((clinic) => (
-                    <div key={clinic.name} className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-xl font-semibold text-[#17362c]">{clinic.name}</h3>
-                        <span className="rounded-full bg-[#eaf9f7] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[.12em] text-[#19b3a2]">{clinic.status}</span>
-                      </div>
-                      <p className="mt-3 text-sm text-[#587068]">{clinic.city}</p>
-                      <div className="mt-5 rounded-2xl bg-[#f5faf7] p-4">
-                        <p className="text-xs uppercase tracking-[.12em] text-[#19b3a2]">Capacity</p>
-                        <p className="mt-2 text-2xl font-bold text-[#17362c]">{clinic.capacity}</p>
-                      </div>
+                      <p className="mt-4 text-xs font-semibold uppercase tracking-[.12em] text-[#19b3a2]">{doctor.availability}</p>
+                      <p className="mt-2 text-sm text-[#587068]">{doctor.email}</p>
+                      <p className="mt-1 text-sm text-[#587068]">★ {doctor.rating}</p>
                     </div>
                   ))}
                 </div>
               </section>
             )}
 
-            {screen === "availability" && (
+            {screen === "patients" && (
               <section className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
-                <div className="rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-6 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
-                  <div className="flex items-center justify-between pb-4">
+                <div className="flex flex-col gap-4 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Schedule</p>
-                      <h3 className="mt-2 text-3xl font-bold tracking-[-0.04em] text-[#17362c]">Doctor availability</h3>
+                      <p className="text-sm font-bold uppercase tracking-[.14em] text-[#19b3a2]">Patients</p>
+                      <h2 className="mt-2 text-4xl font-bold tracking-[-0.04em] text-[#17362c]">Patients</h2>
+                      <p className="mt-2 text-sm text-[#587068]">Manage patient records, add new patients and view their details.</p>
                     </div>
-                    <button className="rounded-xl bg-[#19b3a2] px-4 py-2.5 text-sm font-semibold text-white">Add slot</button>
+                    <button type="button" onClick={() => setShowPatientForm((current) => !current)} className="inline-flex items-center justify-center rounded-2xl bg-[#19b3a2] px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_28px_rgba(25,179,162,0.2)]">
+                      + Add new patient
+                    </button>
                   </div>
 
-                  <div className="mt-4 overflow-hidden rounded-2xl border border-[#dfe9e1]">
-                    <table className="w-full text-left text-sm text-[#17362c]">
+                  <div className="grid gap-3 lg:grid-cols-[1.7fr_repeat(3,minmax(0,0.72fr))_auto]">
+                    <label className="flex items-center gap-3 rounded-2xl border border-[#dfe9e1] bg-white px-4 py-3 text-sm text-[#7b8a84] shadow-[0_8px_20px_rgba(19,51,43,0.04)] lg:min-w-0">
+                      <Search className="size-4 text-[#9aa8a3]" aria-hidden="true" />
+                      <input type="search" placeholder="Search patients by name, phone or email..." className="w-full border-0 bg-transparent text-sm text-[#17362c] placeholder:text-[#9aa8a3] outline-none" />
+                    </label>
+                    <select className="rounded-2xl border border-[#dfe9e1] bg-white px-4 py-3 text-sm font-semibold text-[#17362c] shadow-[0_8px_20px_rgba(19,51,43,0.04)] outline-none">
+                      <option>All status</option>
+                      <option>Active</option>
+                      <option>New</option>
+                      <option>Follow-up</option>
+                    </select>
+                    <select className="rounded-2xl border border-[#dfe9e1] bg-white px-4 py-3 text-sm font-semibold text-[#17362c] shadow-[0_8px_20px_rgba(19,51,43,0.04)] outline-none">
+                      <option>All gender</option>
+                      <option>Male</option>
+                      <option>Female</option>
+                      <option>Other</option>
+                    </select>
+                    <select className="rounded-2xl border border-[#dfe9e1] bg-white px-4 py-3 text-sm font-semibold text-[#17362c] shadow-[0_8px_20px_rgba(19,51,43,0.04)] outline-none">
+                      <option>All doctors</option>
+                      <option>Dr. Ananya Rao</option>
+                      <option>Dr. Meera Iyer</option>
+                      <option>Dr. Priya Sharma</option>
+                    </select>
+                    <button type="button" className="text-sm font-semibold text-[#587068]">Reset</button>
+                  </div>
+                </div>
+
+                <div className="mt-5 overflow-hidden rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[1180px] text-left text-sm">
                       <thead className="bg-[#f5faf7] text-[#587068]">
                         <tr>
-                          <th className="px-4 py-3 font-semibold">Doctor</th>
-                          <th className="px-4 py-3 font-semibold">Day</th>
-                          <th className="px-4 py-3 font-semibold">Slots</th>
+                          <th className="px-4 py-3"><input type="checkbox" aria-label="Select all patients" /></th>
+                          <th className="px-4 py-3 font-semibold">#</th>
+                          <th className="px-4 py-3 font-semibold">Patient</th>
+                          <th className="px-4 py-3 font-semibold">Contact</th>
+                          <th className="px-4 py-3 font-semibold">Age / Gender</th>
+                          <th className="px-4 py-3 font-semibold">Blood Group</th>
+                          <th className="px-4 py-3 font-semibold">Last Visit</th>
+                          <th className="px-4 py-3 font-semibold">Next Appointment</th>
                           <th className="px-4 py-3 font-semibold">Status</th>
+                          <th className="px-4 py-3 font-semibold">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {[
-                          ["Dr. Ananya Rao", "Mon", "8 slots", "Open"],
-                          ["Dr. Kabir Menon", "Tue", "5 slots", "Limited"],
-                          ["Dr. Aisha Patel", "Wed", "9 slots", "Open"],
-                        ].map(([doctor, day, slots, status]) => (
-                          <tr key={doctor} className="border-t border-[#dfe9e1]">
-                            <td className="px-4 py-3 font-medium">{doctor}</td>
-                            <td className="px-4 py-3">{day}</td>
-                            <td className="px-4 py-3">{slots}</td>
-                            <td className="px-4 py-3">
-                              <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[.12em] ${status === "Open" ? "bg-[#eaf9f7] text-[#19b3a2]" : "bg-[#fff7e9] text-[#8a5e00]"}`}>
-                                {status}
-                              </span>
+                        {patientTableRows.map((row) => (
+                          <tr key={row.id} className="border-t border-[#e8eee9] bg-white hover:bg-[#fbfdfb]">
+                            <td className="px-4 py-4 align-middle"><input type="checkbox" aria-label={`Select ${row.patient}`} /></td>
+                            <td className="px-4 py-4 align-middle text-[#587068]">{row.index}</td>
+                            <td className="px-4 py-4 align-middle">
+                              <div className="flex items-center gap-3">
+                                <div className="grid size-9 place-items-center rounded-full bg-[#eaf9f7] text-sm font-bold text-[#19b3a2]">{row.avatar}</div>
+                                <div>
+                                  <p className="font-semibold text-[#17362c]">{row.patient}</p>
+                                  <p className="text-xs text-[#587068]">{row.code}</p>
+                                </div>
+                              </div>
                             </td>
+                            <td className="px-4 py-4 align-middle whitespace-pre-line text-[#587068]">{row.contact}</td>
+                            <td className="px-4 py-4 align-middle text-[#587068]">{row.ageGender}</td>
+                            <td className="px-4 py-4 align-middle text-[#587068]">{row.bloodGroup}</td>
+                            <td className="px-4 py-4 align-middle whitespace-pre-line text-[#587068]">{row.lastVisit}</td>
+                            <td className="px-4 py-4 align-middle whitespace-pre-line text-[#587068]">{row.nextAppointment}</td>
+                            <td className="px-4 py-4 align-middle"><span className={`rounded-full px-3 py-1 text-xs font-semibold ${patientStatusClasses[row.status]}`}>{row.status}</span></td>
+                            <td className="px-4 py-4 align-middle"><button type="button" className="rounded-full border border-[#dfe9e1] px-3 py-2 text-xs font-semibold text-[#17362c] hover:border-[#19b3a2] hover:text-[#19b3a2]">•••</button></td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
+
+                  <div className="flex flex-col gap-3 border-t border-[#e8eee9] px-5 py-4 text-sm text-[#587068] sm:flex-row sm:items-center sm:justify-between">
+                    <p>Showing 1 to 10 of 248 patients</p>
+                    <div className="flex items-center gap-2">
+                      <button type="button" className="grid size-9 place-items-center rounded-xl border border-[#dfe9e1] bg-white text-[#587068]">‹</button>
+                      {[1, 2, 3, 4, 5].map((page) => (
+                        <button key={page} type="button" className={`grid size-9 place-items-center rounded-xl text-sm font-semibold ${page === 1 ? "bg-[#19b3a2] text-white shadow-[0_10px_20px_rgba(25,179,162,0.22)]" : "border border-[#dfe9e1] bg-white text-[#17362c]"}`}>{page}</button>
+                      ))}
+                      <span className="px-1 text-[#c1c9c4]">…</span>
+                      <button type="button" className="grid size-9 place-items-center rounded-xl border border-[#dfe9e1] bg-white text-[#17362c]">25</button>
+                      <button type="button" className="grid size-9 place-items-center rounded-xl border border-[#dfe9e1] bg-white text-[#587068]">›</button>
+                    </div>
+                  </div>
                 </div>
+
+                {showPatientForm && (
+                  <div className="mt-5 rounded-3xl border border-[#d8e2d9] bg-[#fcfdf9] p-5 shadow-[0_10px_30px_rgba(20,108,82,0.05)]">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold uppercase tracking-[.12em] text-[#19b3a2]">Add new patient</p>
+                        <h3 className="mt-2 text-2xl font-bold tracking-[-0.04em] text-[#17362c]">Quick patient entry</h3>
+                      </div>
+                      <button type="button" onClick={() => setShowPatientForm(false)} className="text-sm font-semibold text-[#587068]">Hide</button>
+                    </div>
+
+                    <form onSubmit={handleAddPatient} className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                      <input value={newPatientForm.name} onChange={(event) => setNewPatientForm({ ...newPatientForm, name: event.target.value })} placeholder="Patient name" className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none" />
+                      <input value={newPatientForm.email} onChange={(event) => setNewPatientForm({ ...newPatientForm, email: event.target.value })} type="email" placeholder="Email" className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none" />
+                      <input value={newPatientForm.phone} onChange={(event) => setNewPatientForm({ ...newPatientForm, phone: event.target.value })} placeholder="Phone" className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none" />
+                      <select value={newPatientForm.doctor} onChange={(event) => setNewPatientForm({ ...newPatientForm, doctor: event.target.value })} className="rounded-xl border border-[#c7d5ca] bg-white px-3 py-3 text-sm text-[#17362c] outline-none">
+                        {eligibleDoctors.map((doctor) => (<option key={doctor.name} value={doctor.name}>{doctor.name}</option>))}
+                      </select>
+                      <button type="submit" className="rounded-xl bg-[#19b3a2] px-4 py-3 text-sm font-semibold text-white hover:bg-[#149d92]">Save patient</button>
+                    </form>
+                  </div>
+                )}
               </section>
             )}
 
-            {screen === "billing" && (
-              <BillingPage />
-            )}
-
           </main>
-
           <Footer />
         </div>
       </div>
