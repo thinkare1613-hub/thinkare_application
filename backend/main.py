@@ -1,5 +1,6 @@
 import os
 import re
+import secrets
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -11,13 +12,14 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, sta
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
+from typing import Literal
 from pwdlib import PasswordHash
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql://postgres@localhost:5433/thinkare_booking_db"
 )
-JWT_SECRET = os.getenv("JWT_SECRET", "change-this-development-secret")
+JWT_SECRET = os.getenv("JWT_SECRET", "thinkare-local-development-jwt-secret")
 JWT_ALGORITHM = "HS256"
 password_hash = PasswordHash.recommended()
 bearer_scheme = HTTPBearer()
@@ -43,7 +45,25 @@ DEMO_USERS: dict[str, dict[str, str]] = {
         "role": "clinic_admin",
         "password_hash": password_hash.hash("admin@123"),
     }
+    ,
+    "919876543210": {
+        "id": "user-demo-patient",
+        "clinic_id": "clinic-demo-1",
+        "email": "patient-demo@thinkare.local",
+        "phone": "+91 98765 43210",
+        "role": "patient",
+        "password_hash": password_hash.hash("patient@123"),
+    },
+    "doctor@gmail.com": {
+        "id": "user-demo-doctor",
+        "clinic_id": "clinic-demo-1",
+        "email": "doctor@gmail.com",
+        "role": "doctor",
+        "password_hash": password_hash.hash("doctor@123"),
+    },
 }
+
+OTP_REQUESTS: dict[tuple[str, str], dict[str, str]] = {}
 
 app = FastAPI(title="Thinkare Booking API", version="0.1.0")
 allowed_origins = {
@@ -55,6 +75,7 @@ allowed_origins = {
     "http://127.0.0.1:5175",
     "http://localhost:5176",
     "http://127.0.0.1:5176",
+    "http://192.168.31.253:5173",
     "https://thinkare-application-1.onrender.com",
 }
 configured_origin = os.getenv("FRONTEND_ORIGIN")
@@ -70,7 +91,7 @@ if additional_origins:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(allowed_origins),
-    allow_origin_regex=r"https://.*\.onrender\.com|http://localhost:\d+|http://127\.0\.0\.1:\d+",
+    allow_origin_regex=r"https://.*\.onrender\.com|http://localhost:\d+|http://127\.0\.0\.1:\d+|http://192\.168\.31\.253:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -106,7 +127,19 @@ class PatientCreateRequest(BaseModel):
 class PublicPatientRegisterRequest(BaseModel):
     name: str
     phone: str
-    password: str
+    password: str | None = None
+
+
+class PatientOtpSendRequest(BaseModel):
+    clinic_slug: str
+    phone: str
+    name: str
+
+
+class PatientOtpVerifyRequest(BaseModel):
+    clinic_slug: str
+    phone: str
+    otp: str
 
 
 class AvailabilityRequest(BaseModel):
@@ -126,120 +159,13 @@ class SlotRequest(BaseModel):
 
 
 class BookingRequest(BaseModel):
-    slot_id: UUID
+    slot_id: UUID | None = None
     patient_id: UUID | None = None
+    doctor_id: UUID | None = None
+    appointment_date: date | None = None
+    start_time: time | None = None
+    end_time: time | None = None
     reason: str | None = None
-    patient_notes: str | None = None
-
-    '''
-    @app.get("/api/medical-records")
-    def list_medical_records(
-        patient_id: UUID | None = None,
-        category: str | None = None,
-        search: str | None = None,
-        user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
-    ) -> list[dict[str, object]]:
-        if category and category not in ALLOWED_RECORD_CATEGORIES:
-            raise HTTPException(status_code=400, detail="Unsupported medical record category")
-
-        with psycopg.connect(DATABASE_URL) as connection:
-            resolved_patient_id = patient_id
-            if user["role"] == "PATIENT":
-                patient = connection.execute("SELECT id FROM patients WHERE user_id = %s AND clinic_id = %s", (user["id"], user["clinic_id"])).fetchone()
-                if not patient:
-                    return []
-                resolved_patient_id = patient[0]
-
-            query = """
-                SELECT id, clinic_id, patient_id, doctor_id, category, title, summary, diagnosis,
-                       prescription_count, record_date, attachment_name, created_at
-                FROM medical_records WHERE clinic_id = %s
-            """
-            params: list[object] = [user["clinic_id"]]
-            if resolved_patient_id:
-                query += " AND patient_id = %s"
-                params.append(resolved_patient_id)
-            if category:
-                query += " AND category = %s"
-                params.append(category)
-            if search:
-                query += " AND (title ILIKE %s OR summary ILIKE %s OR diagnosis ILIKE %s)"
-                term = f"%{search.strip()}%"
-                params.extend([term, term, term])
-            query += " ORDER BY record_date DESC, created_at DESC"
-            rows = connection.execute(query, tuple(params)).fetchall()
-
-        return [{"id": str(row[0]), "clinic_id": str(row[1]), "patient_id": str(row[2]), "doctor_id": str(row[3]) if row[3] else None, "category": row[4], "title": row[5], "summary": row[6], "diagnosis": row[7], "prescription_count": row[8], "record_date": str(row[9]), "attachment_name": row[10], "created_at": row[11].isoformat()} for row in rows]
-
-
-    @app.get("/api/medical-records/{record_id}")
-    def get_medical_record(
-        record_id: UUID,
-        user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
-    ) -> dict[str, object]:
-        with psycopg.connect(DATABASE_URL) as connection:
-            record = connection.execute("""SELECT id, clinic_id, patient_id, doctor_id, category, title, summary, diagnosis, prescription_count, record_date, attachment_name, attachment_path, created_at FROM medical_records WHERE id = %s""", (record_id,)).fetchone()
-            if not record:
-                raise HTTPException(status_code=404, detail="Medical record not found")
-            ensure_record_access(record, user, connection)
-        return {"id": str(record[0]), "clinic_id": str(record[1]), "patient_id": str(record[2]), "doctor_id": str(record[3]) if record[3] else None, "category": record[4], "title": record[5], "summary": record[6], "diagnosis": record[7], "prescription_count": record[8], "record_date": str(record[9]), "attachment_name": record[10], "has_attachment": bool(record[11]), "created_at": record[12].isoformat()}
-
-
-    @app.post("/api/patients/{patient_id}/medical-records", status_code=status.HTTP_201_CREATED)
-    def upload_medical_record(
-        patient_id: UUID,
-        category: str = Form(...),
-        title: str = Form(...),
-        record_date: date = Form(...),
-        summary: str | None = Form(None),
-        diagnosis: str | None = Form(None),
-        prescription_count: int | None = Form(None),
-        file: UploadFile | None = File(None),
-        user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR")),
-    ) -> dict[str, object]:
-        if category not in ALLOWED_RECORD_CATEGORIES:
-            raise HTTPException(status_code=400, detail="Unsupported medical record category")
-        if not title.strip():
-            raise HTTPException(status_code=400, detail="Record title is required")
-
-        with psycopg.connect(DATABASE_URL) as connection:
-            patient = connection.execute("SELECT clinic_id FROM patients WHERE id = %s", (patient_id,)).fetchone()
-            if not patient:
-                raise HTTPException(status_code=404, detail="Patient not found")
-            ensure_same_clinic(user, patient[0], field_name="patient.clinic_id")
-
-            attachment_name = None
-            attachment_path = None
-            if file and file.filename:
-                suffix = Path(file.filename).suffix.lower()
-                if suffix not in {".pdf", ".png", ".jpg", ".jpeg"}:
-                    raise HTTPException(status_code=400, detail="Only PDF, PNG, and JPG files are supported")
-                UPLOAD_DIRECTORY.mkdir(parents=True, exist_ok=True)
-                attachment_name = Path(file.filename).name
-                saved_path = UPLOAD_DIRECTORY / f"{uuid4().hex}{suffix}"
-                saved_path.write_bytes(file.file.read())
-                attachment_path = str(saved_path)
-
-            record = connection.execute("""INSERT INTO medical_records (clinic_id, patient_id, category, title, summary, diagnosis, prescription_count, record_date, attachment_name, attachment_path) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""", (user["clinic_id"], patient_id, category, title.strip(), summary, diagnosis, prescription_count, record_date, attachment_name, attachment_path)).fetchone()
-            connection.commit()
-        return {"id": str(record[0]), "patient_id": str(patient_id), "category": category, "title": title.strip(), "attachment_name": attachment_name}
-
-
-    @app.get("/api/medical-records/{record_id}/download")
-    def download_medical_record(
-        record_id: UUID,
-        user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
-    ) -> FileResponse:
-        with psycopg.connect(DATABASE_URL) as connection:
-            record = connection.execute("SELECT id, clinic_id, patient_id, attachment_name, attachment_path FROM medical_records WHERE id = %s", (record_id,)).fetchone()
-            if not record:
-                raise HTTPException(status_code=404, detail="Medical record not found")
-            ensure_record_access((record[0], record[1], record[2]), user, connection)
-        if not record[4] or not Path(record[4]).is_file():
-            raise HTTPException(status_code=404, detail="Record attachment is unavailable")
-        return FileResponse(path=record[4], filename=record[3] or "medical-record")
-
-    '''
     patient_notes: str | None = None
 
 
@@ -261,6 +187,29 @@ class InvoiceCreateRequest(BaseModel):
 
 class ClinicStatusRequest(BaseModel):
     status: str
+
+
+class AIActionApprovalRequest(BaseModel):
+    screen: str
+    action: str
+    approved: bool = True
+
+
+class WearableConsentRequest(BaseModel):
+    granted: bool
+    consent_version: str
+
+
+class WearableMetricInput(BaseModel):
+    metric_type: Literal["steps", "heart_rate", "sleep_duration"]
+    metric_value: Decimal = Field(gt=0)
+    unit: Literal["count", "bpm", "minutes"]
+    recorded_at: datetime
+
+
+class WearableSyncRequest(BaseModel):
+    source: Literal["health_connect"]
+    metrics: list[WearableMetricInput] = Field(max_length=2000)
 
 
 def validate_same_clinic_patient_doctor(patient_id: UUID, doctor_id: UUID, connection) -> None:
@@ -350,6 +299,236 @@ def ensure_record_access(record: tuple[object, ...], user: dict[str, str], conne
         patient = connection.execute("SELECT id FROM patients WHERE user_id = %s", (user["id"],)).fetchone()
         if not patient or str(patient[0]) != str(record[2]):
             raise HTTPException(status_code=403, detail="You can only access your own medical records")
+
+
+def get_authenticated_patient_id(user: dict[str, str], connection) -> UUID:
+    try:
+        user_id = UUID(user["id"])
+    except (KeyError, ValueError) as error:
+        raise HTTPException(
+            status_code=404,
+            detail="A verified patient profile is required. Sign in through your clinic's patient flow.",
+        ) from error
+
+    patient = connection.execute(
+        "SELECT id FROM patients WHERE user_id = %s AND clinic_id = %s",
+        (user_id, user["clinic_id"]),
+    ).fetchone()
+    if not patient:
+        raise HTTPException(
+            status_code=404,
+            detail="A verified patient profile is required. Sign in through your clinic's patient flow.",
+        )
+    return patient[0]
+
+
+def wearable_provider_unavailable() -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail="Google Health API access and server-side integration are not configured.",
+    )
+
+
+@app.get("/api/wearables/fitbit/status")
+def wearable_fitbit_status(
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> dict[str, object]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        consent = connection.execute(
+            "SELECT consent_version, granted_at, revoked_at FROM wearable_consents WHERE patient_id = %s AND provider = 'fire_boltt'",
+            (patient_id,),
+        ).fetchone()
+        wearable = connection.execute(
+            "SELECT connected_at, last_sync_at, access_token_ciphertext, connection_method FROM wearable_connections WHERE patient_id = %s AND provider = 'fire_boltt'",
+            (patient_id,),
+        ).fetchone()
+        latest_metric = connection.execute(
+            "SELECT MAX(recorded_at) FROM wearable_health_metrics WHERE patient_id = %s AND provider = 'fire_boltt'",
+            (patient_id,),
+        ).fetchone()
+
+    connected = bool(
+        wearable
+        and (wearable[2] or (wearable[0] and wearable[3] == "health_connect"))
+    )
+    consent_granted = bool(consent and consent[1] and not consent[2])
+    return {
+        "provider": "fire_boltt",
+        "connected": connected,
+        "consent_granted": consent_granted,
+        "consent_version": consent[0] if consent else None,
+        "provider_ready": False,
+        "health_connect_available": True,
+        "connection_method": wearable[3] if wearable else None,
+        "latest_sync_at": str(wearable[1]) if wearable and wearable[1] else None,
+        "latest_metric_at": str(latest_metric[0]) if latest_metric and latest_metric[0] else None,
+        "message": "Fire-Boltt BSW049 uses Da Fit. Thinkare can import it only if Da Fit or Google Fit shares records to Health Connect.",
+    }
+
+
+@app.post("/api/wearables/fitbit/consent")
+def update_wearable_consent(
+    payload: WearableConsentRequest,
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> dict[str, bool]:
+    if not payload.consent_version.strip():
+        raise HTTPException(status_code=422, detail="A consent version is required")
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        if payload.granted:
+            connection.execute(
+                """
+                INSERT INTO wearable_consents (patient_id, provider, consent_version, granted_at, revoked_at)
+                VALUES (%s, 'fire_boltt', %s, NOW(), NULL)
+                ON CONFLICT (patient_id, provider) DO UPDATE
+                SET consent_version = EXCLUDED.consent_version, granted_at = NOW(), revoked_at = NULL
+                """,
+                (patient_id, payload.consent_version.strip()),
+            )
+        else:
+            connection.execute(
+                "UPDATE wearable_consents SET revoked_at = NOW() WHERE patient_id = %s AND provider = 'fire_boltt'",
+                (patient_id,),
+            )
+            connection.execute(
+                "UPDATE wearable_connections SET access_token_ciphertext = NULL, refresh_token_ciphertext = NULL, connected_at = NULL, connection_method = NULL WHERE patient_id = %s AND provider = 'fire_boltt'",
+                (patient_id,),
+            )
+        connection.commit()
+    return {"consent_granted": payload.granted}
+
+
+@app.get("/api/wearables/fitbit/connect")
+def connect_fitbit(
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> dict[str, str]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        consent = connection.execute(
+            "SELECT granted_at, revoked_at FROM wearable_consents WHERE patient_id = %s AND provider = 'fire_boltt'",
+            (patient_id,),
+        ).fetchone()
+    if not consent or not consent[0] or consent[1]:
+        raise HTTPException(status_code=403, detail="Active patient consent is required before connecting Fitbit.")
+    raise wearable_provider_unavailable()
+
+
+@app.get("/api/wearables/fitbit/callback")
+def fitbit_callback() -> None:
+    raise wearable_provider_unavailable()
+
+
+@app.post("/api/wearables/fitbit/sync")
+def sync_fitbit(
+    payload: WearableSyncRequest,
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> dict[str, int]:
+    expected_units = {"steps": "count", "heart_rate": "bpm", "sleep_duration": "minutes"}
+    for metric in payload.metrics:
+        if metric.unit != expected_units[metric.metric_type]:
+            raise HTTPException(status_code=422, detail=f"Invalid unit for {metric.metric_type}")
+        if metric.recorded_at.tzinfo is None or metric.recorded_at.utcoffset() is None:
+            raise HTTPException(status_code=422, detail="Metric timestamps must include a timezone")
+        if metric.metric_type == "heart_rate" and metric.metric_value > 250:
+            raise HTTPException(status_code=422, detail="Heart rate value is out of range")
+        if metric.metric_type == "steps" and metric.metric_value > 1_000_000:
+            raise HTTPException(status_code=422, detail="Step count is out of range")
+        if metric.metric_type == "sleep_duration" and metric.metric_value > 1_440:
+            raise HTTPException(status_code=422, detail="Sleep duration is out of range")
+
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        consent = connection.execute(
+            "SELECT granted_at, revoked_at FROM wearable_consents WHERE patient_id = %s AND provider = 'fire_boltt'",
+            (patient_id,),
+        ).fetchone()
+        if not consent or not consent[0] or consent[1]:
+            raise HTTPException(status_code=403, detail="Active patient consent is required before syncing Fitbit.")
+        inserted_count = 0
+        for metric in payload.metrics:
+            result = connection.execute(
+                """
+                INSERT INTO wearable_health_metrics (patient_id, provider, metric_type, metric_value, unit, recorded_at)
+                VALUES (%s, 'fire_boltt', %s, %s, %s, %s)
+                ON CONFLICT (patient_id, provider, metric_type, recorded_at) DO NOTHING
+                """,
+                (patient_id, metric.metric_type, metric.metric_value, metric.unit, metric.recorded_at),
+            )
+            inserted_count += result.rowcount
+        connection.execute(
+            """
+            INSERT INTO wearable_connections (patient_id, provider, connected_at, last_sync_at, connection_method)
+            VALUES (%s, 'fire_boltt', CASE WHEN %s THEN NOW() ELSE NULL END, NOW(), 'health_connect')
+            ON CONFLICT (patient_id, provider) DO UPDATE
+            SET connected_at = CASE WHEN EXCLUDED.connected_at IS NOT NULL THEN NOW() ELSE wearable_connections.connected_at END,
+                last_sync_at = NOW(), connection_method = 'health_connect'
+            """,
+            (patient_id, bool(payload.metrics)),
+        )
+        connection.commit()
+    return {"synced_count": inserted_count, "received_count": len(payload.metrics)}
+
+
+@app.get("/api/wearables/health-metrics")
+def list_wearable_health_metrics(
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> list[dict[str, object]]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        rows = connection.execute(
+            """
+            SELECT id, provider, metric_type, metric_value, unit, recorded_at
+            FROM wearable_health_metrics
+            WHERE patient_id = %s
+            ORDER BY recorded_at DESC
+            LIMIT 200
+            """,
+            (patient_id,),
+        ).fetchall()
+    return [
+        {
+            "id": str(row[0]),
+            "provider": row[1],
+            "metric_type": row[2],
+            "metric_value": str(row[3]),
+            "unit": row[4],
+            "recorded_at": row[5].isoformat(),
+        }
+        for row in rows
+    ]
+
+
+@app.delete("/api/wearables/fitbit/disconnect")
+def disconnect_fitbit(
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> dict[str, object]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        connection.execute(
+            "UPDATE wearable_consents SET revoked_at = NOW() WHERE patient_id = %s AND provider = 'fire_boltt'",
+            (patient_id,),
+        )
+        connection.execute(
+            "UPDATE wearable_connections SET access_token_ciphertext = NULL, refresh_token_ciphertext = NULL, connected_at = NULL, connection_method = NULL WHERE patient_id = %s AND provider = 'fire_boltt'",
+            (patient_id,),
+        )
+        connection.commit()
+    return {"connected": False, "health_metrics_preserved": True}
+
+
+@app.delete("/api/wearables/health-metrics")
+def delete_wearable_health_metrics(
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT")),
+) -> dict[str, int]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        patient_id = get_authenticated_patient_id(user, connection)
+        result = connection.execute(
+            "DELETE FROM wearable_health_metrics WHERE patient_id = %s",
+            (patient_id,),
+        )
+        connection.commit()
+    return {"deleted_count": result.rowcount}
 
 
 @app.get("/api/medical-records")
@@ -488,7 +667,11 @@ def login(credentials: LoginRequest) -> dict[str, object]:
     except psycopg.Error as error:
         raise HTTPException(status_code=503, detail="Authentication database is unavailable") from error
 
-    demo_user = DEMO_USERS.get(credentials.email or "")
+    normalized_phone = "".join(character for character in (credentials.phone or "") if character.isdigit())
+    demo_user = next(
+        (DEMO_USERS[key] for key in (credentials.email or "", credentials.phone or "", normalized_phone) if key in DEMO_USERS),
+        None,
+    )
     if demo_user and password_hash.verify(credentials.password, demo_user["password_hash"]):
         clinic = DEMO_CLINICS.get(demo_user["clinic_id"], {})
         role = str(demo_user["role"]).upper()
@@ -497,7 +680,7 @@ def login(credentials: LoginRequest) -> dict[str, object]:
             "token_type": "bearer",
             "user": {
                 "id": demo_user["id"],
-                "email": credentials.email or "",
+                "email": credentials.email or demo_user.get("email", ""),
                 "role": role,
                 "clinic_id": demo_user["clinic_id"],
                 "clinic_name": clinic.get("name", "Clinic Workspace"),
@@ -513,6 +696,7 @@ def register_public_patient(public_slug: str, account: PublicPatientRegisterRequ
     name_parts = account.name.strip().split(maxsplit=1)
     first_name = name_parts[0] if name_parts else "Patient"
     last_name = name_parts[1] if len(name_parts) > 1 else ""
+    password_value = (account.password or "").strip() or secrets.token_urlsafe(24)
 
     try:
         with psycopg.connect(DATABASE_URL) as connection:
@@ -535,7 +719,7 @@ def register_public_patient(public_slug: str, account: PublicPatientRegisterRequ
                 VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, TRUE)
                 RETURNING id
                 """,
-                (user_id, role[0], first_name, last_name, internal_email, account.phone, password_hash.hash(account.password)),
+                (user_id, role[0], first_name, last_name, internal_email, account.phone, password_hash.hash(password_value)),
             ).fetchone()
             patient = connection.execute(
                 """
@@ -547,6 +731,30 @@ def register_public_patient(public_slug: str, account: PublicPatientRegisterRequ
             ).fetchone()
             connection.commit()
     except psycopg.errors.UniqueViolation as error:
+        with psycopg.connect(DATABASE_URL) as connection:
+            existing_user = connection.execute(
+                """
+                SELECT users.id, roles.name, patients.id, patients.clinic_id, patients.name
+                FROM users
+                JOIN roles ON roles.id = users.role_id
+                LEFT JOIN patients ON patients.user_id = users.id
+                WHERE users.phone = %s OR users.email = %s
+                LIMIT 1
+                """,
+                (account.phone, internal_email),
+            ).fetchone()
+
+        if existing_user and str(existing_user[1]).upper() == "PATIENT" and existing_user[2] and str(existing_user[3]) == str(clinic[0]):
+            with psycopg.connect(DATABASE_URL) as connection:
+                connection.execute("UPDATE patients SET name = %s WHERE id = %s", (account.name.strip(), existing_user[2]))
+                connection.commit()
+            return {
+                "access_token": create_token(str(existing_user[0]), "PATIENT", str(clinic[0])),
+                "token_type": "bearer",
+                "user": {"id": str(existing_user[0]), "role": "PATIENT", "clinic_id": str(clinic[0]), "clinic_name": clinic[1]},
+                "patient": {"id": str(existing_user[2]), "name": account.name.strip()},
+            }
+
         raise HTTPException(status_code=409, detail="An account already uses this email or phone") from error
     except psycopg.Error as error:
         raise HTTPException(status_code=503, detail="Patient registration database is unavailable") from error
@@ -556,6 +764,111 @@ def register_public_patient(public_slug: str, account: PublicPatientRegisterRequ
         "token_type": "bearer",
         "user": {"id": str(user[0]), "role": "PATIENT", "clinic_id": str(clinic[0]), "clinic_name": clinic[1]},
         "patient": {"id": str(patient[0]), "name": account.name.strip()},
+    }
+
+
+@app.post("/api/auth/patient/send-otp")
+def send_patient_otp(request: PatientOtpSendRequest) -> dict[str, str]:
+    phone_digits = "".join(character for character in request.phone if character.isdigit())
+    if not phone_digits:
+        raise HTTPException(status_code=422, detail="Mobile number is required")
+
+    otp = f"{secrets.randbelow(1_000_000):06d}"
+    OTP_REQUESTS[(request.clinic_slug, phone_digits)] = {"otp": otp, "name": request.name.strip()}
+    return {"message": "OTP sent successfully", "otp": otp}
+
+
+@app.post("/api/auth/patient/verify-otp")
+def verify_patient_otp(request: PatientOtpVerifyRequest) -> dict[str, object]:
+    phone_digits = "".join(character for character in request.phone if character.isdigit())
+    otp_record = OTP_REQUESTS.get((request.clinic_slug, phone_digits))
+    if not otp_record:
+        raise HTTPException(status_code=404, detail="Request OTP first")
+    if otp_record.get("otp") != request.otp:
+        raise HTTPException(status_code=401, detail="Invalid OTP")
+
+    with psycopg.connect(DATABASE_URL) as connection:
+        clinic = connection.execute(
+            "SELECT id, name FROM clinics WHERE public_slug = %s AND status = 'APPROVED'",
+            (request.clinic_slug,),
+        ).fetchone()
+        if not clinic:
+            raise HTTPException(status_code=404, detail="Clinic booking page not found")
+
+        existing_user = connection.execute(
+            """
+            SELECT users.id, roles.name, patients.id, patients.clinic_id, patients.name
+            FROM users
+            JOIN roles ON roles.id = users.role_id
+            LEFT JOIN patients ON patients.user_id = users.id
+            WHERE users.phone = %s
+            LIMIT 1
+            """,
+            (request.phone,),
+        ).fetchone()
+
+        if existing_user and str(existing_user[1]).upper() == "PATIENT" and existing_user[2] and str(existing_user[3]) == str(clinic[0]):
+            return {
+                "access_token": create_token(str(existing_user[0]), "PATIENT", str(clinic[0])),
+                "token_type": "bearer",
+                "user": {"id": str(existing_user[0]), "role": "PATIENT", "clinic_id": str(clinic[0]), "clinic_name": clinic[1], "name": existing_user[4] or otp_record.get("name", "")},
+                "patient": {"id": str(existing_user[2]), "name": existing_user[4] or otp_record.get("name", "")},
+            }
+
+        profile_name = otp_record.get("name") or "Patient"
+        name_parts = profile_name.strip().split(maxsplit=1)
+        first_name = name_parts[0] if name_parts else "Patient"
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
+        internal_email = f"patient-{phone_digits}@thinkare.local"
+        role = connection.execute("SELECT id FROM roles WHERE name = 'PATIENT'").fetchone()
+        if not role:
+            raise HTTPException(status_code=500, detail="PATIENT role is not configured")
+
+        try:
+            user = connection.execute(
+                """
+                INSERT INTO users (id, role_id, first_name, last_name, email, phone, password_hash, is_active, is_verified)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, TRUE)
+                RETURNING id
+                """,
+                (str(uuid4()), role[0], first_name, last_name, internal_email, request.phone, password_hash.hash(secrets.token_urlsafe(16))),
+            ).fetchone()
+            patient = connection.execute(
+                """
+                INSERT INTO patients (clinic_id, user_id, name, email, phone, status)
+                VALUES (%s, %s, %s, %s, %s, 'active')
+                RETURNING id
+                """,
+                (clinic[0], user[0], profile_name.strip(), internal_email, request.phone),
+            ).fetchone()
+            connection.commit()
+        except psycopg.errors.UniqueViolation:
+            existing_user = connection.execute(
+                """
+                SELECT users.id, roles.name, patients.id, patients.clinic_id, patients.name
+                FROM users
+                JOIN roles ON roles.id = users.role_id
+                LEFT JOIN patients ON patients.user_id = users.id
+                WHERE users.phone = %s OR users.email = %s
+                LIMIT 1
+                """,
+                (request.phone, internal_email),
+            ).fetchone()
+            if not existing_user:
+                raise HTTPException(status_code=409, detail="An account already uses this phone")
+            return {
+                "access_token": create_token(str(existing_user[0]), "PATIENT", str(clinic[0])),
+                "token_type": "bearer",
+                "user": {"id": str(existing_user[0]), "role": "PATIENT", "clinic_id": str(clinic[0]), "clinic_name": clinic[1], "name": existing_user[4] or profile_name.strip()},
+                "patient": {"id": str(existing_user[2]), "name": existing_user[4] or profile_name.strip()},
+            }
+
+    OTP_REQUESTS.pop((request.clinic_slug, phone_digits), None)
+    return {
+        "access_token": create_token(str(user[0]), "PATIENT", str(clinic[0])),
+        "token_type": "bearer",
+        "user": {"id": str(user[0]), "role": "PATIENT", "clinic_id": str(clinic[0]), "clinic_name": clinic[1], "name": profile_name.strip()},
+        "patient": {"id": str(patient[0]), "name": profile_name.strip()},
     }
 
 
@@ -768,6 +1081,254 @@ def dashboard(user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMI
         raise HTTPException(status_code=503, detail="Dashboard data is unavailable") from error
 
 
+@app.get("/api/ai/context")
+def ai_context(
+    screen: str,
+    patient_name: str | None = None,
+    user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
+) -> dict[str, object]:
+    normalized_screen = screen.strip().lower()
+    supported_screens = {
+        "dashboard",
+        "patients",
+        "doctors",
+        "appointments",
+        "medical_records",
+        "billing",
+        "notifications",
+        "profile",
+        "care_team",
+    }
+    if normalized_screen not in supported_screens:
+        raise HTTPException(status_code=400, detail="Unsupported AI context screen")
+
+    today = datetime.now().date()
+    with psycopg.connect(DATABASE_URL) as connection:
+        if normalized_screen == "dashboard":
+            appointment_stats = connection.execute(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE appointment_date = %s) AS today_total,
+                    COUNT(*) FILTER (WHERE appointment_date = %s AND status = 'CONFIRMED') AS confirmed,
+                    COUNT(*) FILTER (WHERE appointment_date = %s AND status = 'PENDING') AS pending
+                FROM appointments
+                WHERE clinic_id = %s
+                """,
+                (today, today, today, user["clinic_id"]),
+            ).fetchone()
+            patient_total = connection.execute(
+                "SELECT COUNT(*) FROM patients WHERE clinic_id = %s",
+                (user["clinic_id"],),
+            ).fetchone()[0]
+            doctor_total = connection.execute(
+                "SELECT COUNT(*) FROM doctors WHERE clinic_id = %s AND is_active = TRUE",
+                (user["clinic_id"],),
+            ).fetchone()[0]
+            summary = f"{appointment_stats[0]} appointments today, {patient_total} patients, and {doctor_total} active doctors are in scope."
+            signals = [
+                f"{appointment_stats[1]} confirmed appointments today",
+                f"{appointment_stats[2]} appointments still pending",
+                f"{patient_total} active patients in this clinic",
+            ]
+            suggestions = ["Review pending appointments", "Open today's patient list", "Check doctor availability"]
+            confidence = "high"
+            requires_approval = False
+        elif normalized_screen == "patients":
+            patient_total = connection.execute(
+                "SELECT COUNT(*) FROM patients WHERE clinic_id = %s",
+                (user["clinic_id"],),
+            ).fetchone()[0]
+            recent_visits = connection.execute(
+                "SELECT COUNT(*) FROM appointments WHERE clinic_id = %s AND appointment_date >= CURRENT_DATE - INTERVAL '14 days'",
+                (user["clinic_id"],),
+            ).fetchone()[0]
+            summary = f"{patient_total} patients are registered here, with {recent_visits} visits in the last two weeks."
+            signals = [
+                f"{recent_visits} recent appointments",
+                "Patient history should be surfaced before manual follow-up",
+                "Use clinic-scoped records for each profile",
+            ]
+            suggestions = ["Review overdue follow-ups", "Open the most recent patient profile", "Highlight patients needing review"]
+            confidence = "medium"
+            requires_approval = True
+        elif normalized_screen == "appointments":
+            patient_id = None
+            patient_label = None
+            if patient_name:
+                patient_record = connection.execute(
+                    "SELECT id, name FROM patients WHERE clinic_id = %s AND name ILIKE %s ORDER BY created_at DESC LIMIT 1",
+                    (user["clinic_id"], patient_name.strip()),
+                ).fetchone()
+                if patient_record:
+                    patient_id = patient_record[0]
+                    patient_label = patient_record[1]
+
+            appointment_stats = connection.execute(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE status = 'CONFIRMED') AS confirmed,
+                    COUNT(*) FILTER (WHERE status = 'PENDING') AS pending,
+                    COUNT(*) FILTER (WHERE status = 'CANCELLED') AS cancelled
+                FROM appointments
+                WHERE clinic_id = %s
+                """,
+                (user["clinic_id"],),
+            ).fetchone()
+
+            ranked_doctors = connection.execute(
+                """
+                WITH doctor_load AS (
+                    SELECT
+                        d.id AS doctor_id,
+                        CONCAT_WS(' ', u.first_name, u.last_name) AS doctor_name,
+                        COUNT(a.id) FILTER (
+                            WHERE a.appointment_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
+                              AND a.status IN ('CONFIRMED', 'PENDING')
+                        ) AS workload
+                    FROM doctors d
+                    LEFT JOIN users u ON u.id = d.user_id
+                    LEFT JOIN appointments a ON a.doctor_id = d.id AND a.clinic_id = d.clinic_id
+                    WHERE d.clinic_id = %s AND d.is_active = TRUE
+                    GROUP BY d.id, u.first_name, u.last_name
+                ), patient_history AS (
+                    SELECT doctor_id, COUNT(*) AS patient_visits
+                    FROM appointments
+                    WHERE clinic_id = %s AND patient_id = %s
+                    GROUP BY doctor_id
+                )
+                SELECT
+                    doctor_load.doctor_id,
+                    doctor_load.doctor_name,
+                    doctor_load.workload,
+                    COALESCE(patient_history.patient_visits, 0) AS patient_visits,
+                    (doctor_load.workload * 2) - (COALESCE(patient_history.patient_visits, 0) * 3) AS score
+                FROM doctor_load
+                LEFT JOIN patient_history ON patient_history.doctor_id = doctor_load.doctor_id
+                ORDER BY score ASC, doctor_load.workload ASC, doctor_load.doctor_name ASC
+                LIMIT 5
+                """,
+                (user["clinic_id"], user["clinic_id"], patient_id or uuid4()),
+            ).fetchall()
+
+            recommended_doctor = ranked_doctors[0] if ranked_doctors else None
+            recommended_date = None
+            if recommended_doctor:
+                next_slot = connection.execute(
+                    """
+                    SELECT slot_date
+                    FROM appointment_slots
+                    WHERE clinic_id = %s AND doctor_id = %s AND status = 'AVAILABLE' AND slot_date >= CURRENT_DATE
+                    ORDER BY slot_date ASC, start_time ASC
+                    LIMIT 1
+                    """,
+                    (user["clinic_id"], recommended_doctor[0]),
+                ).fetchone()
+                recommended_date = str(next_slot[0]) if next_slot else str(today)
+
+            summary = f"{appointment_stats[0]} confirmed appointments and {appointment_stats[1]} pending appointments are currently tracked."
+            if patient_label and recommended_doctor:
+                summary = f"{patient_label} is best matched to {recommended_doctor[1]} on {recommended_date}."
+            signals = [
+                f"{appointment_stats[1]} appointments still need attention",
+                f"{appointment_stats[2]} appointments were cancelled",
+                "Scheduling should keep approvals visible before changes",
+            ]
+            suggestions = [
+                f"Assign {recommended_doctor[1]} on {recommended_date}" if recommended_doctor and recommended_date else "Prioritize pending slots",
+                "Check for schedule conflicts",
+                patient_label and "Keep the patient's usual doctor visible" or "Prepare follow-up reminders",
+            ]
+            confidence = "high"
+            requires_approval = True
+        elif normalized_screen == "medical_records":
+            record_total = connection.execute(
+                "SELECT COUNT(*) FROM medical_records WHERE clinic_id = %s",
+                (user["clinic_id"],),
+            ).fetchone()[0]
+            summary = f"{record_total} medical records are available for this clinic."
+            signals = [
+                "Summaries should highlight latest findings first",
+                "Attach approval before sharing or downloading sensitive records",
+                "Surface the most recent record before the archive",
+            ]
+            suggestions = ["Summarize the latest record", "Check for missing attachments", "Compare the last two visits"]
+            confidence = "medium"
+            requires_approval = True
+        elif normalized_screen == "billing":
+            invoice_stats = connection.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE status = 'OVERDUE') AS overdue,
+                    COALESCE(SUM(total) FILTER (WHERE status <> 'PAID'), 0)
+                FROM invoices
+                WHERE clinic_id = %s
+                """,
+                (user["clinic_id"],),
+            ).fetchone()
+            summary = f"{invoice_stats[0]} invoices are tracked, with {invoice_stats[1]} overdue."
+            signals = [
+                f"{invoice_stats[1]} overdue invoices need attention",
+                "Unpaid balances should stay visible in the billing queue",
+                f"Outstanding amount is {invoice_stats[2]}",
+            ]
+            suggestions = ["Review overdue invoices", "Flag accounts for follow-up", "Check outstanding balances"]
+            confidence = "medium"
+            requires_approval = True
+        else:
+            summary = "Context is available for this screen and can be refined from clinic data."
+            signals = [
+                "Keep suggestions clinic-scoped",
+                "Show the next best action before any execution",
+                "Preserve explicit user approval for sensitive actions",
+            ]
+            suggestions = ["Review the current screen context", "Open the related clinic workflow", "Keep approval visible"]
+            confidence = "medium"
+            requires_approval = False
+
+    return {
+        "screen": normalized_screen,
+        "role": user["role"],
+        "clinic_id": user["clinic_id"],
+        "summary": summary,
+        "signals": signals,
+        "suggested_actions": suggestions,
+        "confidence": confidence,
+        "requires_approval": requires_approval,
+        "recommended_doctor": {
+            "id": str(recommended_doctor[0]) if normalized_screen == "appointments" and recommended_doctor else "",
+            "name": str(recommended_doctor[1]) if normalized_screen == "appointments" and recommended_doctor else "",
+        } if normalized_screen == "appointments" else None,
+        "recommended_date": recommended_date if normalized_screen == "appointments" else None,
+        "patient_name": patient_label if normalized_screen == "appointments" else None,
+        "ranked_doctors": [
+            {
+                "id": str(row[0]),
+                "name": str(row[1]),
+                "workload": int(row[2] or 0),
+                "patient_history": int(row[3] or 0),
+                "score": int(row[4] or 0),
+            }
+            for row in ranked_doctors
+        ] if normalized_screen == "appointments" else [],
+    }
+
+
+@app.post("/api/ai/approve-action")
+def approve_ai_action(
+    payload: AIActionApprovalRequest,
+    user: dict[str, str] = Depends(require_clinic_context("CLINIC_ADMIN", "DOCTOR", "PATIENT")),
+) -> dict[str, object]:
+    return {
+        "screen": payload.screen,
+        "action": payload.action,
+        "approved": payload.approved,
+        "role": user["role"],
+        "clinic_id": user["clinic_id"],
+        "status": "recorded",
+    }
+
+
 @app.get("/api/specialties")
 def specialties() -> list[dict[str, object]]:
     with psycopg.connect(DATABASE_URL) as connection:
@@ -929,8 +1490,7 @@ def appointments(
         query = """
             SELECT appointments.id, appointments.appointment_date, appointments.start_time, appointments.status,
                    COALESCE(patients.name, CONCAT_WS(' ', patient_users.first_name, patient_users.last_name)),
-                   CONCAT_WS(' ', doctor_users.first_name, doctor_users.last_name),
-                   COALESCE(appointments.reason, 'Consultation')
+                   CONCAT_WS(' ', doctor_users.first_name, doctor_users.last_name)
             FROM appointments
             JOIN patients ON patients.id = appointments.patient_id
             LEFT JOIN users patient_users ON patient_users.id = patients.user_id
@@ -958,7 +1518,7 @@ def appointments(
             "status": str(row[3]).replace("_", " ").title(),
             "patient": row[4] or "Unnamed patient",
             "doctor": row[5] or "Unassigned doctor",
-            "service": row[6],
+            "service": "Consultation",
         }
         for row in rows
     ]
@@ -1162,47 +1722,83 @@ def book_appointment(
     booking: BookingRequest,
     user: dict[str, str] = Depends(require_clinic_context("PATIENT", "CLINIC_ADMIN", "DOCTOR")),
 ) -> dict[str, str]:
-    with psycopg.connect(DATABASE_URL) as connection:
-        if user["role"] == "PATIENT":
-            patient = connection.execute(
-                "SELECT id, clinic_id FROM patients WHERE user_id = %s AND clinic_id = %s",
-                (user["id"], user["clinic_id"]),
-            ).fetchone()
-        else:
-            if not booking.patient_id:
-                raise HTTPException(status_code=400, detail="patient_id is required when staff creates a booking")
-            patient = connection.execute(
-                "SELECT id, clinic_id FROM patients WHERE id = %s AND clinic_id = %s",
-                (booking.patient_id, user["clinic_id"]),
-            ).fetchone()
-        slot = connection.execute(
-            """SELECT doctor_id, clinic_id, slot_date, start_time, end_time FROM appointment_slots
-               WHERE id = %s AND status = 'AVAILABLE' FOR UPDATE""",
-            (booking.slot_id,),
-        ).fetchone()
-        if not patient or not slot:
-            raise HTTPException(status_code=409, detail="That appointment slot is no longer available")
-        ensure_same_clinic(user, patient[1], field_name="patient.clinic_id")
-        if str(patient[1]) != str(slot[1]):
-            raise HTTPException(
-                status_code=400,
-                detail="This patient can only be assigned to a doctor from the same clinic.",
-            )
+    appointment_number = f"THK-{uuid4().hex[:10].upper()}"
 
-        validate_same_clinic_patient_doctor(patient[0], slot[0], connection)
-        appointment_number = f"THK-{uuid4().hex[:10].upper()}"
-        appointment = connection.execute(
-            """INSERT INTO appointments (appointment_number, patient_id, doctor_id, clinic_id, slot_id, appointment_date, start_time, end_time, reason, patient_notes)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
-            (appointment_number, patient[0], slot[0], slot[1], booking.slot_id, slot[2], slot[3], slot[4], booking.reason, booking.patient_notes),
+    with psycopg.connect(DATABASE_URL) as connection:
+        if booking.slot_id:
+            if user["role"] == "PATIENT":
+                patient = connection.execute(
+                    "SELECT id, clinic_id FROM patients WHERE user_id = %s AND clinic_id = %s",
+                    (user["id"], user["clinic_id"]),
+                ).fetchone()
+            else:
+                if not booking.patient_id:
+                    raise HTTPException(status_code=400, detail="patient_id is required when staff creates a booking")
+                patient = connection.execute(
+                    "SELECT id, clinic_id FROM patients WHERE id = %s AND clinic_id = %s",
+                    (booking.patient_id, user["clinic_id"]),
+                ).fetchone()
+
+            slot = connection.execute(
+                """SELECT doctor_id, clinic_id, slot_date, start_time, end_time FROM appointment_slots
+                   WHERE id = %s AND status = 'AVAILABLE' FOR UPDATE""",
+                (booking.slot_id,),
+            ).fetchone()
+            if not patient or not slot:
+                raise HTTPException(status_code=409, detail="That appointment slot is no longer available")
+
+            ensure_same_clinic(user, patient[1], field_name="patient.clinic_id")
+            ensure_same_clinic(user, slot[1], field_name="slot.clinic_id")
+            if str(patient[1]) != str(slot[1]):
+                raise HTTPException(status_code=400, detail="This patient can only be assigned to a doctor from the same clinic.")
+            validate_same_clinic_patient_doctor(patient[0], slot[0], connection)
+
+            appointment = connection.execute(
+                """INSERT INTO appointments
+                   (patient_id, doctor_id, clinic_id, appointment_date, start_time, end_time, status, appointment_number, slot_id, reason, patient_notes)
+                   VALUES (%s, %s, %s, %s, %s, %s, 'confirmed', %s, %s, %s, %s) RETURNING id""",
+                (patient[0], slot[0], slot[1], slot[2], slot[3], slot[4], appointment_number, booking.slot_id, booking.reason, booking.patient_notes),
+            ).fetchone()
+            connection.execute("UPDATE appointment_slots SET status = 'BOOKED' WHERE id = %s", (booking.slot_id,))
+
+            if user["role"] == "PATIENT":
+                connection.execute(
+                    """INSERT INTO notifications (user_id, appointment_id, type, title, message)
+                       VALUES (%s, %s, 'IN_APP', 'Booking confirmation', 'Your appointment request has been received.')""",
+                    (user["id"], appointment[0]),
+                )
+            connection.commit()
+            return {"id": str(appointment[0]), "appointment_number": appointment_number}
+
+        if user["role"] == "PATIENT":
+            raise HTTPException(status_code=400, detail="An available slot is required")
+        if not all([booking.patient_id, booking.doctor_id, booking.appointment_date, booking.start_time, booking.end_time]):
+            raise HTTPException(status_code=400, detail="Patient, doctor, date, start time, and end time are required")
+
+        patient = connection.execute(
+            "SELECT clinic_id FROM patients WHERE id = %s",
+            (booking.patient_id,),
         ).fetchone()
-        connection.execute("UPDATE appointment_slots SET status = 'BOOKED' WHERE id = %s", (booking.slot_id,))
-        connection.execute(
-            """INSERT INTO notifications (user_id, appointment_id, type, title, message)
-               VALUES (%s, %s, 'IN_APP', 'Booking confirmation', 'Your appointment request has been received.')""",
-            (user["id"], appointment[0]),
-        )
+        doctor = connection.execute(
+            "SELECT clinic_id FROM doctors WHERE id = %s",
+            (booking.doctor_id,),
+        ).fetchone()
+        if not patient or not doctor:
+            raise HTTPException(status_code=404, detail="Patient or doctor not found")
+        ensure_same_clinic(user, patient[0], field_name="patient.clinic_id")
+        ensure_same_clinic(user, doctor[0], field_name="doctor.clinic_id")
+        if str(patient[0]) != str(doctor[0]):
+            raise HTTPException(status_code=400, detail="The selected patient and doctor must belong to the same clinic")
+        validate_same_clinic_patient_doctor(booking.patient_id, booking.doctor_id, connection)
+
+        appointment = connection.execute(
+            """INSERT INTO appointments
+               (patient_id, doctor_id, clinic_id, appointment_date, start_time, end_time, status, appointment_number, reason, patient_notes)
+               VALUES (%s, %s, %s, %s, %s, %s, 'confirmed', %s, %s, %s) RETURNING id""",
+            (booking.patient_id, booking.doctor_id, user["clinic_id"], booking.appointment_date, booking.start_time, booking.end_time, appointment_number, booking.reason, booking.patient_notes),
+        ).fetchone()
         connection.commit()
+
     return {"id": str(appointment[0]), "appointment_number": appointment_number}
 
 
