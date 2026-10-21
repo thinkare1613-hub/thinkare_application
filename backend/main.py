@@ -1720,15 +1720,25 @@ def available_slots(
 @app.post("/api/appointments", status_code=status.HTTP_201_CREATED)
 def book_appointment(
     booking: BookingRequest,
-    user: dict[str, str] = Depends(require_clinic_context("PATIENT", "CLINIC_ADMIN")),
+    user: dict[str, str] = Depends(require_clinic_context("PATIENT", "CLINIC_ADMIN", "DOCTOR")),
 ) -> dict[str, str]:
-    with psycopg.connect(DATABASE_URL) as connection:
-        appointment_number = f"THK-{uuid4().hex[:10].upper()}"
+    appointment_number = f"THK-{uuid4().hex[:10].upper()}"
 
-        if user["role"] == "PATIENT":
-            if not booking.slot_id:
-                raise HTTPException(status_code=400, detail="An available slot is required")
-            patient = connection.execute("SELECT id, clinic_id FROM patients WHERE user_id = %s", (user["id"],)).fetchone()
+    with psycopg.connect(DATABASE_URL) as connection:
+        if booking.slot_id:
+            if user["role"] == "PATIENT":
+                patient = connection.execute(
+                    "SELECT id, clinic_id FROM patients WHERE user_id = %s AND clinic_id = %s",
+                    (user["id"], user["clinic_id"]),
+                ).fetchone()
+            else:
+                if not booking.patient_id:
+                    raise HTTPException(status_code=400, detail="patient_id is required when staff creates a booking")
+                patient = connection.execute(
+                    "SELECT id, clinic_id FROM patients WHERE id = %s AND clinic_id = %s",
+                    (booking.patient_id, user["clinic_id"]),
+                ).fetchone()
+
             slot = connection.execute(
                 """SELECT doctor_id, clinic_id, slot_date, start_time, end_time FROM appointment_slots
                    WHERE id = %s AND status = 'AVAILABLE' FOR UPDATE""",
@@ -1736,41 +1746,56 @@ def book_appointment(
             ).fetchone()
             if not patient or not slot:
                 raise HTTPException(status_code=409, detail="That appointment slot is no longer available")
+
             ensure_same_clinic(user, patient[1], field_name="patient.clinic_id")
+            ensure_same_clinic(user, slot[1], field_name="slot.clinic_id")
             if str(patient[1]) != str(slot[1]):
                 raise HTTPException(status_code=400, detail="This patient can only be assigned to a doctor from the same clinic.")
-
             validate_same_clinic_patient_doctor(patient[0], slot[0], connection)
+
             appointment = connection.execute(
-                """INSERT INTO appointments (patient_id, doctor_id, clinic_id, appointment_date, start_time, end_time, status)
-                   VALUES (%s, %s, %s, %s, %s, %s, 'confirmed') RETURNING id""",
-                (patient[0], slot[0], slot[1], slot[2], slot[3], slot[4]),
+                """INSERT INTO appointments
+                   (patient_id, doctor_id, clinic_id, appointment_date, start_time, end_time, status, appointment_number, slot_id, reason, patient_notes)
+                   VALUES (%s, %s, %s, %s, %s, %s, 'confirmed', %s, %s, %s, %s) RETURNING id""",
+                (patient[0], slot[0], slot[1], slot[2], slot[3], slot[4], appointment_number, booking.slot_id, booking.reason, booking.patient_notes),
             ).fetchone()
             connection.execute("UPDATE appointment_slots SET status = 'BOOKED' WHERE id = %s", (booking.slot_id,))
-            connection.execute(
-                """INSERT INTO notifications (user_id, appointment_id, type, title, message)
-                   VALUES (%s, %s, 'IN_APP', 'Booking confirmation', 'Your appointment request has been received.')""",
-                (user["id"], appointment[0]),
-            )
+
+            if user["role"] == "PATIENT":
+                connection.execute(
+                    """INSERT INTO notifications (user_id, appointment_id, type, title, message)
+                       VALUES (%s, %s, 'IN_APP', 'Booking confirmation', 'Your appointment request has been received.')""",
+                    (user["id"], appointment[0]),
+                )
             connection.commit()
             return {"id": str(appointment[0]), "appointment_number": appointment_number}
 
+        if user["role"] == "PATIENT":
+            raise HTTPException(status_code=400, detail="An available slot is required")
         if not all([booking.patient_id, booking.doctor_id, booking.appointment_date, booking.start_time, booking.end_time]):
             raise HTTPException(status_code=400, detail="Patient, doctor, date, start time, and end time are required")
 
-        patient = connection.execute("SELECT clinic_id, name FROM patients WHERE id = %s", (str(booking.patient_id),)).fetchone()
-        doctor = connection.execute("SELECT clinic_id, name FROM doctors WHERE id = %s", (str(booking.doctor_id),)).fetchone()
+        patient = connection.execute(
+            "SELECT clinic_id FROM patients WHERE id = %s",
+            (booking.patient_id,),
+        ).fetchone()
+        doctor = connection.execute(
+            "SELECT clinic_id FROM doctors WHERE id = %s",
+            (booking.doctor_id,),
+        ).fetchone()
         if not patient or not doctor:
             raise HTTPException(status_code=404, detail="Patient or doctor not found")
         ensure_same_clinic(user, patient[0], field_name="patient.clinic_id")
         ensure_same_clinic(user, doctor[0], field_name="doctor.clinic_id")
         if str(patient[0]) != str(doctor[0]):
             raise HTTPException(status_code=400, detail="The selected patient and doctor must belong to the same clinic")
+        validate_same_clinic_patient_doctor(booking.patient_id, booking.doctor_id, connection)
 
         appointment = connection.execute(
-            """INSERT INTO appointments (patient_id, doctor_id, clinic_id, appointment_date, start_time, end_time, status)
-               VALUES (%s, %s, %s, %s, %s, %s, 'confirmed') RETURNING id""",
-            (booking.patient_id, booking.doctor_id, user["clinic_id"], booking.appointment_date, booking.start_time, booking.end_time),
+            """INSERT INTO appointments
+               (patient_id, doctor_id, clinic_id, appointment_date, start_time, end_time, status, appointment_number, reason, patient_notes)
+               VALUES (%s, %s, %s, %s, %s, %s, 'confirmed', %s, %s, %s) RETURNING id""",
+            (booking.patient_id, booking.doctor_id, user["clinic_id"], booking.appointment_date, booking.start_time, booking.end_time, appointment_number, booking.reason, booking.patient_notes),
         ).fetchone()
         connection.commit()
 
