@@ -10,9 +10,15 @@ npm install
 npm start
 ```
 
-Use Expo Go to scan the terminal QR code. The API default is `http://127.0.0.1:8000` for iOS simulator/web and `http://10.0.2.2:8000` for the Android emulator.
+Use Expo Go to scan the terminal QR code. The app uses the live API (`https://thinkare-application.onrender.com`) by default.
 
-For Expo Go on a physical phone, set `EXPO_PUBLIC_API_URL` to your computer's LAN address, for example `http://192.168.1.20:8000`, and run FastAPI on `0.0.0.0`. Keep the phone and computer on the same network. The backend must be reachable from the phone; `localhost` on a phone refers to the phone itself.
+To use a local API, set `EXPO_PUBLIC_API_URL` in `mobile_app/.env` to the address for your target:
+
+- Android emulator: `http://10.0.2.2:8000`
+- iOS simulator: `http://127.0.0.1:8000`
+- Physical phone: your computer's LAN address, for example `http://192.168.1.20:8000`; run FastAPI on `0.0.0.0` and keep both devices on the same network.
+
+After changing the API URL, restart Expo with `npx expo start --clear` so the new URL is included in the app bundle.
 
 ## Phase 1 flow
 
