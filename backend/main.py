@@ -621,7 +621,7 @@ def health() -> dict[str, str]:
 def public_clinic(public_slug: str) -> dict[str, str]:
     with psycopg.connect(DATABASE_URL) as connection:
         clinic = connection.execute(
-            "SELECT id, name FROM clinics WHERE public_slug = %s AND UPPER(status) IN ('APPROVED', 'ACTIVE')",
+            "SELECT id, name FROM clinics WHERE public_slug = %s AND status = 'APPROVED'",
             (public_slug,),
         ).fetchone()
     if not clinic:
@@ -701,7 +701,7 @@ def register_public_patient(public_slug: str, account: PublicPatientRegisterRequ
     try:
         with psycopg.connect(DATABASE_URL) as connection:
             clinic = connection.execute(
-                "SELECT id, name FROM clinics WHERE public_slug = %s AND UPPER(status) IN ('APPROVED', 'ACTIVE')",
+                "SELECT id, name FROM clinics WHERE public_slug = %s AND status = 'APPROVED'",
                 (public_slug,),
             ).fetchone()
             if not clinic:
@@ -789,7 +789,7 @@ def verify_patient_otp(request: PatientOtpVerifyRequest) -> dict[str, object]:
 
     with psycopg.connect(DATABASE_URL) as connection:
         clinic = connection.execute(
-            "SELECT id, name FROM clinics WHERE public_slug = %s AND UPPER(status) IN ('APPROVED', 'ACTIVE')",
+            "SELECT id, name FROM clinics WHERE public_slug = %s AND status = 'APPROVED'",
             (request.clinic_slug,),
         ).fetchone()
         if not clinic:
@@ -1340,7 +1340,7 @@ def specialties() -> list[dict[str, object]]:
 
 @app.get("/api/clinics")
 def clinics(user: dict[str, str] = Depends(current_user)) -> list[dict[str, object]]:
-    query = "SELECT id, name, city, state, status FROM clinics WHERE UPPER(status) IN ('APPROVED', 'ACTIVE')"
+    query = "SELECT id, name, city, state, status FROM clinics WHERE status = 'APPROVED'"
     params: list[object] = []
     if user.get("clinic_id"):
         query += " AND id = %s"
